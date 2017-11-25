@@ -2,13 +2,14 @@
 
 Faster SIDH key compression introduces new algorithms to address the main (de)compression bottlenecks including the following contributions:
 * faster basis generation for the 2^eA (~14x) and 3^eB torsions, 
-* faster Tate pairing computations, 
-* a faster algorithm for smooth-order discrete logarithms 
-* a faster point tripling formula for the non-projective curve coefficent case
-* a reverse basis decomposition technique to avoid one pairing computation in each compression
+* faster Tate pairing computation, 
+* a faster algorithm for smooth-order discrete logarithms,
+* a faster point tripling formula for the non-projective curve coefficient case,
+* a reverse basis decomposition technique to avoid one pairing computation in each compression.
 
 
 The related pre-print will appear soon on IACR ePrint Archive.
+
 
 ### Compilation options
 
