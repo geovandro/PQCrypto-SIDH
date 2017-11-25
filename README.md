@@ -36,7 +36,7 @@ $ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ASM=TRUE ARCH_EX=nativ
  * Compile for Apple OS.
 
 ```sh
-$ make ARCH=x64 CC=[gcc/clang] GENERIC=[FALSE/TRUE] SET=EXTENDED [ASM=TRUE] [ARCH_EX=native] -D__APPLE__
+$ make ARCH=x64 CC=[gcc/clang] GENERIC=[FALSE/TRUE] SET=EXTENDED [ASM=TRUE] [ARCH_EX=native] __APPLE__=TRUE
 ```
 
 ### License 
