@@ -7,13 +7,32 @@
 *
 * Abstract: elliptic curve and isogeny functions
 *
+* Modified by Geovandro C. C. F. Pereira (geovandro.pereira@gmail.com) 
 *********************************************************************************************/ 
 
 #include "SIDH_internal.h"
+#include "tests/test_extras.h"
 #include <math.h>
 
-extern const uint64_t LIST[22][NWORDS64_FIELD];
+#define TABLE_R_LEN 17
+#define TABLE_V_LEN 34
 
+extern const uint64_t LIST[22][NWORDS64_FIELD];
+extern const uint64_t u_entang[2*NWORDS64_FIELD];
+extern const uint64_t u0_entang[2*NWORDS_FIELD];
+extern const uint64_t table_r_qr[TABLE_R_LEN][NWORDS_FIELD];
+extern const uint64_t table_r_qnr[TABLE_R_LEN][NWORDS_FIELD];
+extern const uint64_t table_v_qr[TABLE_V_LEN][NWORDS_FIELD];
+extern const uint64_t table_v_qnr[TABLE_V_LEN][NWORDS_FIELD];
+extern const uint64_t v_3_torsion[20][2*NWORDS_FIELD];
+extern const int ph2_path[372];
+extern const int ph3_path[239];
+extern const f2elm_t **ph2_T;
+extern const f2elm_t **ph3_T;
+
+const uint64_t threeinv[NWORDS64_FIELD] = {0x555555555556188F, 0x5555555555555555, 0x5555555555555555, 0x5555555555555555, 
+                                           0x5555555555555555, 0x8105555555555555, 0x1C6290A167C97977, 0xCDD287EA6A6FB6F0, 
+                                           0x42DF3D3B8EC96F64, 0x198C3C1346027872, 0xB0528624270642A3, 0xF1E61944CA0,};
 
 void j_inv(const f2elm_t A, const f2elm_t C, f2elm_t jinv)
 { // Computes the j-invariant of a Montgomery curve with projective constant.
@@ -37,6 +56,52 @@ void j_inv(const f2elm_t A, const f2elm_t C, f2elm_t jinv)
     fp2add751(t0, t0, t0);                             // t0 = t0+t0
     fp2inv751_mont(jinv);                              // jinv = 1/jinv 
     fp2mul751_mont(jinv, t0, jinv);                    // jinv = t0*jinv
+}
+
+
+void Monty2Weier(const f2elm_t A, f2elm_t a, f2elm_t b, PCurveIsogenyStruct CurveIsogeny)
+{ // Convert a Montgomery curve EM: y^2 = x^3 + A*x^2 + x into its short Weierstrass form EW: v^2 = u^3 + a*u + b.
+    f2elm_t one = {0}, temp, A2, AA;
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    //a = 1 - A^2/3
+    fp2sqr751_mont(A, A2);
+    fpmul751_mont(A2[0], threeinv, temp[0]);
+    fpmul751_mont(A2[1], threeinv, temp[1]);
+    fp2sub751(one, temp, a);
+    
+    //b = (2*A^3 - 9*A)/27
+    fp2add751(A, A, AA);         //AA = 2*A
+    fp2mul751_mont(AA, A2, temp);//temp = 2A^3
+    fp2add751(AA, AA, A2);       // A2 = 4*A
+    fp2add751(A2, A2, A2);       // A2 = 8*A
+    fp2add751(A2, A, A2);        // A2 = 9*A
+    fp2sub751(temp, A2, b);      // b = 2A^3 - 9*A
+    fpmul751_mont(threeinv, threeinv, temp[0]);
+    fpmul751_mont(temp[0], threeinv, temp[0]);
+    fpmul751_mont(temp[0], b[0], b[0]);
+    fpmul751_mont(temp[0], b[1], b[1]);
+}
+
+
+
+void PointMonty2Weier(const point_full_proj_t PM, point_full_proj_t PW, const f2elm_t A, PCurveIsogenyStruct CurveIsogeny)
+{ // Convert a point PM on a Montgomery curve y^2 = x^3 + A*x^2 + x into the corresponding point on its short Weierstrass form EW.
+    f2elm_t zero = {0}, one = {0}, temp;
+    
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    
+    if (fp2compare751(PM->Z, zero) == 0) {
+        fp2copy751(zero,PW->X);
+        fp2copy751(one, PW->Y);
+        fp2copy751(zero,PW->Z);
+    }
+    fpmul751_mont(threeinv, A[0], temp[0]);
+    fpmul751_mont(threeinv, A[1], temp[1]);
+    
+    //PW = EW(PM[0] + A/3, PM[1], 1)
+    fp2add751(temp, PM->X, PW->X);
+    fp2copy751(PM->Y, PW->Y);
+    fp2copy751(one, PW->Z);
 }
 
 
@@ -103,6 +168,27 @@ void xDBLe(const point_proj_t P, point_proj_t Q, const f2elm_t A, const f2elm_t 
     }
 }
 
+
+void Double(point_proj_t P, point_proj_t Q, f2elm_t A24, const int k)
+{
+    int j;
+    f2elm_t temp, a, b, c, aa, bb;    
+    
+    fp2copy751(P->X,Q->X);
+    fp2copy751(P->Z,Q->Z);
+    
+    for (j = 0; j < k; j++) {
+        fp2add751(Q->X,Q->Z,a);
+        fp2sub751(Q->X,Q->Z,b);
+        fp2sqr751_mont(a,aa);
+        fp2sqr751_mont(b,bb);
+        fp2sub751(aa,bb,c);
+        fp2mul751_mont(aa,bb,Q->X);
+        fp2mul751_mont(A24,c,temp);
+        fp2add751(temp,bb,temp);
+        fp2mul751_mont(c,temp,Q->Z);
+    }
+}
 
 void xADD(point_proj_t P, const point_proj_t Q, const f2elm_t xPQ)
 { // Differential addition.
@@ -181,7 +267,7 @@ void xDBLADD_basefield(point_basefield_proj_t P, point_basefield_proj_t Q, const
 }
 
 
-void ladder(const felm_t x, digit_t* m, point_basefield_proj_t P, point_basefield_proj_t Q, const felm_t A24, const unsigned int order_bits, const unsigned int order_fullbits, PCurveIsogenyStruct CurveIsogeny)
+void ladder_fp(const felm_t x, digit_t* m, point_basefield_proj_t P, point_basefield_proj_t Q, const felm_t A24, const unsigned int order_bits, const unsigned int order_fullbits, PCurveIsogenyStruct CurveIsogeny)
 { // The Montgomery ladder
   // Inputs: the affine x-coordinate of a point P on E: B*y^2=x^3+A*x^2+x, 
   //         scalar m
@@ -231,7 +317,7 @@ CRYPTO_STATUS BigMont_ladder(unsigned char* x, digit_t* m, unsigned char* xout, 
     to_mont((digit_t*)x, X);
     
     copy_words(m, scalar, BIGMONT_NWORDS_ORDER);
-    ladder(X, scalar, P1, P2, A24, BIGMONT_NBITS_ORDER, BIGMONT_MAXBITS_ORDER, CurveIsogeny);
+    ladder_fp(X, scalar, P1, P2, A24, BIGMONT_NBITS_ORDER, BIGMONT_MAXBITS_ORDER, CurveIsogeny);
 
     fpinv751_mont(P1->Z);
     fpmul751_mont(P1->X, P1->Z, (digit_t*)xout);
@@ -241,7 +327,7 @@ CRYPTO_STATUS BigMont_ladder(unsigned char* x, digit_t* m, unsigned char* xout, 
 }
 
 
-CRYPTO_STATUS secret_pt(const point_basefield_t P, const digit_t* m, const unsigned int AliceOrBob, point_proj_t R, PCurveIsogenyStruct CurveIsogeny)
+CRYPTO_STATUS secret_pt_fp(const point_basefield_t P, const digit_t* m, const unsigned int AliceOrBob, point_proj_t R, PCurveIsogenyStruct CurveIsogeny)
 { // Computes key generation entirely in the base field by exploiting a 1-dimensional Montgomery ladder in the trace zero subgroup and 
   // recovering the y-coordinate for the addition. All operations in the base field GF(p).
   // Input:  The scalar m, point P = (x,y) on E in the base field subgroup and Q = (x1,y1*i) on E in the trace-zero subgroup. 
@@ -253,12 +339,13 @@ CRYPTO_STATUS secret_pt(const point_basefield_t P, const digit_t* m, const unsig
     digit_t *X0 = (digit_t*)S->X, *Z0 = (digit_t*)S->Z, *X1 = (digit_t*)T->X, *Z1 = (digit_t*)T->Z;
     digit_t *x  = (digit_t*)P->x, *y  = (digit_t*)P->y, *x1 = (digit_t*)Q->x, *y1 = (digit_t*)Q->y;
     digit_t scalar[NWORDS_ORDER];
-    felm_t t0, t1, t2, A24 = {0};
+    felm_t t0, t1, t2, A24 = {0}, two = {0};
     digit_t *RX0 = (digit_t*)R->X[0], *RX1 = (digit_t*)R->X[1], *RZ0 = (digit_t*)R->Z[0], *RZ1 = (digit_t*)R->Z[1];
 
     fpcopy751(P->x, Q->x);                         // Q = (-XP,YP)
     fpcopy751(P->y, Q->y);
     fpneg751(Q->x);
+    fpcorrection751(Q->x);
 
     if (AliceOrBob == ALICE) {
         nbits = CurveIsogeny->oAbits;
@@ -269,14 +356,17 @@ CRYPTO_STATUS secret_pt(const point_basefield_t P, const digit_t* m, const unsig
     }
         
     // Setting curve constant to one (in standard representation), used in xDBLADD_basefield() in the ladder computation
-    A24[0] = 1;
-    copy_words(m, scalar, NWORDS_ORDER);
-    ladder(Q->x, scalar, S, T, A24, nbits, CurveIsogeny->owordbits, CurveIsogeny);
+    fpadd751(CurveIsogeny->Montgomery_one, CurveIsogeny->Montgomery_one, two);
+    fpadd751(CurveIsogeny->A, two, A24);
+    fpdiv2_751(A24, A24);
+    fpdiv2_751(A24, A24);
     
-    //RX0 = (2*y*y1*Z0^2*Z1 + Z1*(X0*x1+Z0)*(X0+x1*Z0) - X1*(X0-x1*Z0)^2)*(2*y*y1*Z0^2*Z1 - Z1*(X0*x1+Z0)*(X0+x1*Z0) + X1*(X0-x1*Z0)^2) - 4*y1^2*Z0*Z1^2*(X0+x*Z0)*(X0-x*Z0)^2;
-    //RX1 = 4*y*y1*Z0^2*Z1*(Z1*(X0*x1+Z0)*(X0+x1*Z0) - X1*(X0-x1*Z0)^2);
-    //RZ0 = 4*y1^2*Z0^2*Z1^2*(X0-x*Z0)^2;
-
+    copy_words(m, scalar, NWORDS_ORDER);
+    ladder_fp(Q->x, scalar, S, T, A24, nbits, CurveIsogeny->owordbits, CurveIsogeny);
+    
+    //RX0 = (2*y*y1*Z0^2*Z1 + Z1*(X0*x1+Z0)*(X0+x1*Z0) - X1*(X0-x1*Z0)^2)*(2*y*y1*Z0^2*Z1 - Z1*(X0*x1+Z0)*(X0+x1*Z0) + X1*(X0-x1*Z0)^2) - 4*y1^2*Z0*Z1^2*(X0+x*Z0)*(X0-x*Z0)^2
+    //RX1 = 4*y*y1*Z0^2*Z1*(Z1*(X0*x1+Z0)*(X0+x1*Z0) - X1*(X0-x1*Z0)^2)
+    //RZ0 = 4*y1^2*Z0^2*Z1^2*(X0-x*Z0)^2
     fpmul751_mont(x1, Z0, RX1);
     fpmul751_mont(X0, x1, RX0);
     fpsub751(X0, RX1, t0);
@@ -312,6 +402,68 @@ CRYPTO_STATUS secret_pt(const point_basefield_t P, const digit_t* m, const unsig
     return CRYPTO_SUCCESS;
 }
 
+CRYPTO_STATUS secret_pt(const point_t PA, const digit_t* m, point_proj_t R, PCurveIsogenyStruct CurveIsogeny)
+{ // Computes Alice's key generation in E(Fp2) using a 1-dimensional Montgomery ladder and recovering the y-coordinate for the addition.
+  // Assume A is in the base field for the initial curve
+  // Input:  The scalar m, point PA = (x,y) on E(Fp2) and QA = (-x,y*i) on E.
+  // Output: R = (RX0+RX1*i)/RZ0 (the x-coordinate of PA+[m]QA).    
+    point_proj_t Q = {0}, S = {0}, T = {0};
+    felm_t two = {0};  
+    felm_t *X0 = (felm_t*)S->X, *Z0 = (felm_t*)S->Z, *X1 = (felm_t*)T->X, *Z1 = (felm_t*)T->Z;
+    felm_t *RZ = (felm_t*)R->Z;
+    f2elm_t x, A24 = {0};
+    f2elm_t RX0, RX1, t0, t1, t2, t3, t4;    
+    
+    fpadd751(CurveIsogeny->Montgomery_one, CurveIsogeny->Montgomery_one, two);
+    fpadd751(CurveIsogeny->A, two, A24[0]);
+    fp2div2_751(A24, A24);
+    fp2div2_751(A24, A24);
+
+    fp2copy751(PA->x,x);
+    fp2neg751(x);           // x(QA) = - x(PA)
+    fp2correction751(x);
+    
+    Mont_ladder(x, m, S, T, A24, CurveIsogeny->oAbits, CurveIsogeny->owordbits, CurveIsogeny);
+    
+    //TODO: Rewrite and optimize formulas below to work only with RX in Fp2 instead of having both RX0 and RX1
+    //RX0 = (2*y*y1*Z0^2*Z1 + Z1*(X0*x1+Z0)*(X0+x1*Z0) - X1*(X0-x1*Z0)^2)*(2*y*y1*Z0^2*Z1 - Z1*(X0*x1+Z0)*(X0+x1*Z0) + X1*(X0-x1*Z0)^2) - 4*y1^2*Z0*Z1^2*(X0+x*Z0)*(X0-x*Z0)^2;
+    //RX1 = 4*y*y1*Z0^2*Z1*(Z1*(X0*x1+Z0)*(X0+x1*Z0) - X1*(X0-x1*Z0)^2);
+    //RZ0 = 4*y1^2*Z0^2*Z1^2*(X0-x*Z0)^2;    
+    
+    fp2mul751_mont(PA->x, Z0, RZ);    
+    fp2mul751_mont(X0, PA->x, RX0);
+    fp2add751(X0, RZ, t4);
+    fp2sub751(X0, RZ, RZ);
+    fp2sqr751_mont(t4, t0);
+    fp2sub751(Z0, RX0, RX0);
+    fp2mul751_mont(t0, X1, t0);
+    fp2mul751_mont(RX0, RZ, RX0);
+    fp2mul751_mont(PA->y, Z1, t2);
+    fp2mul751_mont(PA->y, Z0, t1);
+    fp2add751(t2, t2, t2);
+    fp2mul751_mont(t2, Z0, RX1);
+    fp2mul751_mont(RX0, Z1, RX0);
+    fp2sub751(RX0, t0, RX0);
+    fp2mul751_mont(t1, RX1, t1);
+    fp2sqr751_mont(RX1, t0);
+    fp2mul751_mont(t2, RX1, t2);
+    fp2mul751_mont(t1, RX0, RX1);    
+    fp2add751(t1, RX0, t3);
+    fp2add751(RX1, RX1, RX1);
+    fp2sub751(t1, RX0, t1);
+    fp2mul751_mont(t1, t3, t1);
+    fp2sqr751_mont(RZ, RZ);
+    fp2mul751_mont(t2, t4, t2);
+    fp2mul751_mont(t2, RZ, t2);    
+    fp2mul751_mont(RZ, t0, RZ);
+    fp2sub751(t1, t2, RX0);
+    fpsub751(RX0[0], RX1[1], R->X[0]);
+    fpadd751(RX0[1], RX1[0], R->X[1]);
+    fpcorrection751(R->X[1]);
+    fp2correction751(RZ);    
+
+    return CRYPTO_SUCCESS;
+}
 
 CRYPTO_STATUS ladder_3_pt(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xPQ, const digit_t* m, const unsigned int AliceOrBob, point_proj_t W, const f2elm_t A, PCurveIsogenyStruct CurveIsogeny)
 { // Computes P+[m]Q via x-only arithmetic. Algorithm by De Feo, Jao and Plut.
@@ -418,32 +570,6 @@ void eval_4_isog(point_proj_t P, f2elm_t* coeff)
 }
 
 
-void first_4_isog(point_proj_t P, const f2elm_t A, f2elm_t Aout, f2elm_t Cout, PCurveIsogenyStruct CurveIsogeny)
-{ // Computes first 4-isogeny computed by Alice.
-  // Inputs: projective point P = (X4:Z4) and curve constant A.
-  // Output: the projective point P = (X4:Z4) in the codomain and isogenous curve constant Aout/Cout.  
-    f2elm_t t0 = {0}, t1, t2;
-    
-    fpcopy751(CurveIsogeny->Montgomery_one, t0[0]); 
-    fpadd751(t0[0], t0[0], t0[0]);                     // t0 = 2 (in Montgomery domain)
-    fp2sub751(A, t0, Cout);                            // Cout = A-2
-    fpadd751(t0[0], t0[0], t1[0]);                     
-    fpadd751(t0[0], t1[0], t0[0]);                     // t0 = 6 (in Montgomery domain)
-    fp2add751(P->X, P->Z, t1);                         // t1 = X+Z
-    fp2sub751(P->X, P->Z, t2);                         // t2 = X-Z
-    fp2sqr751_mont(t1, t1);                            // t1 = (X+Z)^2
-    fp2add751(A, t0, Aout);                            // A = A+6
-    fp2mul751_mont(P->X, P->Z, P->Z);                  // Z = X*Z
-    fp2neg751(P->Z);                                   // Z = -X*Z
-    fp2sqr751_mont(t2, t2);                            // t2 = (X-Z)^2
-    fp2mul751_mont(P->Z, Cout, P->Z);                  // Z = -C*X*Z
-    fp2add751(Aout, Aout, Aout);                       // Aout = 2*A+12
-    fp2sub751(t1, P->Z, P->X);                         // X = (X+Z)^2+C*X*Z
-    fp2mul751_mont(P->Z, t2, P->Z);                    // Z = -C*X*Z*(X-Z)^2
-    fp2mul751_mont(P->X, t1, P->X);                    // X = (X+Z)^2*[(X+Z)^2+C*X*Z]
-}
-
-
 void xTPL(const point_proj_t P, point_proj_t Q, const f2elm_t A24, const f2elm_t C24)
 { // Tripling of a Montgomery point in projective coordinates (X:Z).
   // Input: projective Montgomery x-coordinates P = (X:Z), where x=X/Z and Montgomery curve constant A/C.
@@ -488,6 +614,55 @@ void xTPLe(const point_proj_t P, point_proj_t Q, const f2elm_t A, const f2elm_t 
 
     for (i = 0; i < e; i++) {
         xTPL(Q, Q, A24, C24);
+    }
+}
+
+/**
+ * Montgomery curve (E: y^2 = x^3 + A*x^2 + x) x-only tripling at a cost 5M + 6S + 9A = 27p + 61a.
+ * NB: this algorithm is new, and apparently the best in the literature,
+ * surpassing the algorithm by S. R. S. Rao, which only attains 6M + 5S + 9A
+ * Trivia: this algorithm has been first suggested in a tweet on Aug 24, 2017 <https://twitter.com/pbarreto/status/900759070625353729>
+ * Input: projective Montgomery x-coordinates P = (X:Z), where x=X/Z and Montgomery curve constant A/2. 
+ * Output: projective Montgomery x-coordinates Q = 3*P = (X3:Z3).
+ */
+void xTPL_fast(const point_proj_t P, point_proj_t Q, const f2elm_t A2)
+{ 
+       f2elm_t t1, t2, t3, t4;
+       
+       fp2sqr751_mont(P->X, t1);       // t1 = x^2
+       fp2sqr751_mont(P->Z, t2);       // t2 = z^2
+       fp2add751(t1, t2, t3);          // t3 = t1 + t2
+       fp2add751(P->X, P->Z, t4);      // t4 = x + z
+       fp2sqr751_mont(t4, t4);         // t4 = t4^2
+       fp2sub751(t4, t3, t4);          // t4 = t4 - t3
+       fp2mul751_mont(A2, t4, t4);     // t4 = t4*A2
+       fp2add751(t3, t4, t4);          // t4 = t4 + t3
+       fp2sub751(t1, t2, t3);          // t3 = t1 - t2
+       fp2sqr751_mont(t3, t3);         // t3 = t3^2
+       fp2mul751_mont(t1, t4, t1);     // t1 = t1*t4
+       fp2shl751(t1, 2, t1);           // t1 = 4*t1
+       fp2sub751(t1, t3, t1);          // t1 = t1 - t3
+       fp2sqr751_mont(t1, t1);         // t1 = t1^2
+       fp2mul751_mont(t2, t4, t2);     // t2 = t2*t4
+       fp2shl751(t2, 2, t2);           // t2 = 4*t2
+       fp2sub751(t2, t3, t2);          // t2 = t2 - t3
+       fp2sqr751_mont(t2, t2);         // t2 = t2^2
+       fp2mul751_mont(P->X, t2, Q->X); // x = x*t2
+       fp2mul751_mont(P->Z, t1, Q->Z); // z = z*t1    
+}
+
+/**
+ * Computes [3^e](X:Z) on Montgomery curve with projective constant via e repeated triplings.
+ * e [3] in E costs k*(5M + 6S + 9A)
+ * Input: projective Montgomery x-coordinates P = (X:Z), where x=X/Z, Montgomery curve constant A2 = A/2 and the number of triplings e.
+ * Output: projective Montgomery x-coordinates Q <- (3^e)*P.
+ */
+void xTPLe_fast(point_proj_t P, point_proj_t Q, const f2elm_t A2, int e)
+{    
+    fp2copy751(P->X,Q->X);
+    fp2copy751(P->Z,Q->Z);
+    for (int j = 0; j < e; j++) { 
+        xTPL_fast(Q,Q,A2);
     }
 }
 
@@ -551,8 +726,8 @@ void inv_3_way(f2elm_t z1, f2elm_t z2, f2elm_t z3)
 }
 
 
-void distort_and_diff(const felm_t xP, point_proj_t D, PCurveIsogenyStruct CurveIsogeny)
-{ // Computing the point (x(Q-P),z(Q-P))
+void distort_and_diff_fp(const felm_t xP, point_proj_t D, PCurveIsogenyStruct CurveIsogeny)
+{ // Computing the point (x(Q-P),z(Q-P)) where x(P) and x(Q) in Fp
   // Input:  coordinate xP of point P=(xP,yP)
   // Output: the point D = (x(Q-P),z(Q-P)), where Q=tau(P).
     felm_t one;
@@ -565,6 +740,21 @@ void distort_and_diff(const felm_t xP, point_proj_t D, PCurveIsogenyStruct Curve
     fpadd751(xP, xP, D->Z[0]);                       // ZD = xP+xP
 }
 
+void distort_and_diff(const f2elm_t xP, point_proj_t D, PCurveIsogenyStruct CurveIsogeny)
+{ // Computing the point (x(Q-P),z(Q-P))
+  // Input:  coordinate xP of point P=(xP,yP)
+  // Output: the point D = (x(Q-P),z(Q-P)), where Q=tau(P).
+    f2elm_t one = {0};
+
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    fp2sqr751_mont(xP, D->X);	                     // XD = xP^2
+    fpadd751(D->X[0], one[0], D->X[0]);              // XD = XD+1    
+    fpcopy751(D->X[1], one[1]);                      // Save XD[1]
+    fpcopy751(D->X[0], D->X[1]);                     // XD = XD*i
+    fpcopy751(one[1], D->X[0]);
+    fpneg751(D->X[0]);
+    fp2add751(xP, xP, D->Z);                         // ZD = xP+xP
+}
 
 void get_A(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xR, f2elm_t A, PCurveIsogenyStruct CurveIsogeny)
 { // Given the x-coordinates of P, Q, and R, returns the value A corresponding to the Montgomery curve E_A: y^2=x^3+A*x^2+x such that R=Q-P on E_A.
@@ -583,7 +773,7 @@ void get_A(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xR, f2elm_t A, PCur
     fp2add751(t1, xR, t1);                           // t1 = t1+xR
     fp2add751(t0, t0, t0);                           // t0 = t0+t0
     fp2sqr751_mont(A, A);                            // A = A^2
-    fp2inv751_mont(t0);                              // t0 = 1/t0
+    fp2inv751_mont_bingcd(t0);                       // t0 = 1/t0
     fp2mul751_mont(A, t0, A);                        // A = A*t0
     fp2sub751(A, t1, A);                             // Afinal = A-t1
 }
@@ -666,24 +856,24 @@ void generate_2_torsion_basis(const f2elm_t A, point_full_proj_t R1, point_full_
     felm_t *XQ = (felm_t*)Q->X,  *ZQ = (felm_t*)Q->Z;
     felm_t *Y1 = (felm_t*)R1->Y, *Y2 = (felm_t*)R2->Y;
     felm_t zero, alpha = {0};
-	f2elm_t t0, t1, one = {0};
-	felm_t four, value47 = {0}, value52 = {0};
+    f2elm_t t0, t1, one = {0};
+    felm_t four, value47 = {0}, value52 = {0};
 
-	fpzero751(zero);
+    fpzero751(zero);
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     
-	value47[0] = 47;
-	value52[0] = 52;
+    value47[0] = 47;
+    value52[0] = 52;
     to_mont(value47, value47);
     to_mont(value52, value52);
     fpadd751(one[0], one[0], four);
     fpadd751(four, four, four);
 
     get_point_notin_2E(alpha, A, one[0], four, value47, value52);
-	fpcopy751(alpha, X1[1]);
+    fpcopy751(alpha, X1[1]);
     fpadd751(alpha, alpha, X1[0]);
     fpadd751(X1[0], X1[0], X1[0]);                   // X1 = alpha*i + alpha*4
-	fpcopy751(one[0], Z1[0]);                        // Z1 = 1 
+    fpcopy751(one[0], Z1[0]);                        // Z1 = 1 
 
     xTPLe(P1, P1, A, one, 239);                      // xTPL assumes projective constant, but this is minor
     xDBLe(P1, P, A, one, 371);
@@ -702,7 +892,7 @@ void generate_2_torsion_basis(const f2elm_t A, point_full_proj_t R1, point_full_
         fp2mul751_mont(XP, ZQ, t0);                  // t0 = XP*ZQ
         fp2mul751_mont(XQ, ZP, t1);                  // t1 = XQ*ZP
         fp2sub751(t0, t1, t0);                       // t0 = XP*ZQ-XQ*ZP
-		fp2correction751(t0);
+        fp2correction751(t0);
     } while (fpequal751_non_constant_time(t0[0], zero) == true && fpequal751_non_constant_time(t0[1], zero) == true);
     
     fp2copy751(X1, R1->X);
@@ -713,28 +903,99 @@ void generate_2_torsion_basis(const f2elm_t A, point_full_proj_t R1, point_full_
     // Recover the y-coordinates.
     fp2sqr751_mont(Z1, t0);                          // t0 = Z1^2
     fp2mul751_mont(A, Z1, Y1);                       // Y1 = A*Z1
-	fp2add751(X1, Y1, Y1);                           // Y1 = X1+Y1
+    fp2add751(X1, Y1, Y1);                           // Y1 = X1+Y1
     fp2mul751_mont(X1, Y1, Y1);                      // Y1 = Y1*X1
-	fp2add751(t0, Y1, Y1);                           // Y1 = Y1+t0
+    fp2add751(t0, Y1, Y1);                           // Y1 = Y1+t0
     fp2mul751_mont(X1, Y1, Y1);                      // Y1 = Y1*X1
-	fp2mul751_mont(t0, Z1, t0);                      // t0 = t0*Z1
+    fp2mul751_mont(t0, Z1, t0);                      // t0 = t0*Z1
     sqrt_Fp2_frac(Y1, t0, t1);                       // t1 = sqrt(Y1/t0)
     
-	fp2sqr751_mont(Z2, t0);                          // t0 = Z2^2
+    fp2sqr751_mont(Z2, t0);                          // t0 = Z2^2
     fp2mul751_mont(A, Z2, Y2);                       // Y2 = A*Z2
     fp2add751(X2, Y2, Y2);                           // Y2 = X2+Y2
     fp2mul751_mont(Y2, X2, Y2);                      // Y2 = Y2*X2
     fp2add751(t0, Y2, Y2);                           // Y2 = Y2+t0
     fp2mul751_mont(Y2, X2, Y2);                      // Y2 = Y2*X2
-	fp2mul751_mont(t0, Z2, t0);                      // t0 = t0*Z2
+    fp2mul751_mont(t0, Z2, t0);                      // t0 = t0*Z2
     fp2mul751_mont(t1, Z1, Y1);                      // Y1 = t1*Z1
     sqrt_Fp2_frac(Y2, t0, t1);                       // t1 = sqrt(Y2/t0)    
-	fp2mul751_mont(Z2, t1, Y2);                      // Y2 = t1*Z2
+    fp2mul751_mont(Z2, t1, Y2);                      // Y2 = t1*Z2
 }
 
+void generate_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2, PCurveIsogenyStruct CurveIsogeny) 
+{
+    unsigned int i, index, isSqrA = 0;
+    felm_t r = {0}, s, z, alpha, twoalphainv, beta;
+    f2elm_t t, u, v, u0, one = {0};
+    felm_t *x1 = (felm_t*) S1->x, *y1 = (felm_t*) S1->y, *x2 = (felm_t*) S2->x, *y2 = (felm_t*) S2->y;
+    const digit_t (*T)[NWORDS_FIELD];
+     
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    
+    copy_words(u0_entang, u0[0], 2*NWORDS_FIELD);
+    copy_words(u_entang, u[0], 2*NWORDS_FIELD);
+
+    // select the correct table
+    if (is_sqr_fp2(A, s)) {
+        T = table_v_qnr;
+        isSqrA = 1;
+    } else {
+        T = table_v_qr;
+    }
+
+    index = 0;
+    do {
+        copy_words(T[index], v[0], 2 * NWORDS_FIELD);
+        fp2mul751_mont(A, v, x1);
+        fp2neg751(x1); // x1 = -A*v
+        fp2add751(x1, A, t);
+        fp2mul751_mont(x1, t, t);
+        fpadd751(t[0], one[0], t[0]);
+        fp2mul751_mont(x1, t, t); // t = x1^3 + A*x1^2 + x1 = x1(x1(x1 + A) + 1)
+        index += 2;
+    } while (!is_sqr_fp2(t, s));        
+    
+    if (isSqrA)
+        copy_words(table_r_qnr[(index-2)/2], r, NWORDS_FIELD);
+    else 
+        copy_words(table_r_qr[(index-2)/2], r, NWORDS_FIELD);
+    
+    // Finish sqrt computation for y1 = sqrt(x1^3+A*x1^2+x1)
+    fpadd751(t[0],s,z);
+    fpdiv2_751(z,z);
+    fpcopy751(z,alpha);
+    for (i = 0; i < 370; i++) {         
+        fpsqr751_mont(alpha, alpha);
+    }
+    for (i = 0; i < 239; i++) {
+        fpsqr751_mont(alpha, s);                                         
+        fpmul751_mont(alpha, s, alpha);     // alpha = z^((p+1)/4)                                 
+    }
+
+    fpadd751(alpha,alpha,twoalphainv);   
+    fpinv751_mont_bingcd(twoalphainv);   
+    fpmul751_mont(t[1],twoalphainv,beta);
+    fpsqr751_mont(alpha, twoalphainv);
+    fpcorrection751(twoalphainv);
+    fpcorrection751(z);
+    if (fpcompare751(twoalphainv,z) == 0) {
+        fpcopy751(alpha,y1[0]);
+        fpcopy751(beta,y1[1]);
+    } else {
+        fpneg751(beta);
+        fpcopy751(beta,y1[0]);
+        fpneg751(alpha);        
+        fpcopy751(alpha,y1[1]);
+    }
+    fp2add751(x1, A, x2);
+    fp2neg751(x2);                  // x2 = A*v - A
+    fp2mul751_mont(u0,y1,y2);   
+    fpmul751_mont(r,y2[0],y2[0]);
+    fpmul751_mont(r,y2[1],y2[1]);   // y2 = u0*r*y1
+}
 
 static uint64_t sqrt17[NWORDS64_FIELD] = { 0x89127CDB8966913D, 0xF788014C8C8401A0, 0x1A16F73884F3E3E8, 0x2E67382B560FA195, 0xDD5EE869B7F4FD81, 0x16A0849EF695EFEB,
-	                                       0x3675244609DE1963, 0x36F02976EF2EB241, 0x92D09F939A20637F, 0x41496905F2B0112C, 0xA94C09B1F7242495, 0x0000297652D36A97 };
+	                                   0x3675244609DE1963, 0x36F02976EF2EB241, 0x92D09F939A20637F, 0x41496905F2B0112C, 0xA94C09B1F7242495, 0x0000297652D36A97 };
 
 static void get_X_on_curve(f2elm_t A, unsigned int* r, f2elm_t x, felm_t t1, felm_t a, felm_t b) 
 { // Elligator2 for X
@@ -746,12 +1007,12 @@ static void get_X_on_curve(f2elm_t A, unsigned int* r, f2elm_t x, felm_t t1, fel
     rsq[0] = (*r)*(*r);                              // rsp = r^2
     to_mont(rsq, rsq);                               // Converting to Montgomery representation 
     fpmul751_mont(A[1], r1, t0);                     // t0 = A1*r1
-	fpmul751_mont(A[0], r0, v0);                     // v0 = A0*r0
-	fpsub751(v0, t0, v0);                            // v0 = v0-t0
-	fpmul751_mont(A[1], r0, t0);                     // t0 = A1*r0
+    fpmul751_mont(A[0], r0, v0);                     // v0 = A0*r0
+    fpsub751(v0, t0, v0);                            // v0 = v0-t0
+    fpmul751_mont(A[1], r0, t0);                     // t0 = A1*r0
     fpmul751_mont(A[0], r1, v1);                     // v1 = A0*r1
     fpadd751(v1, t0, v1);                            // v1 = v1+t0
-	fpadd751(v0, A[0], t0);                          // t0 = v0+A0
+    fpadd751(v0, A[0], t0);                          // t0 = v0+A0
     fpadd751(v1, A[1], t1);                          // t1 = v1+A1
     fpmul751_mont(v0, v1, t2);                       // t2 = v0*v1
     fpadd751(t2, t2, t2);                            // t2 = t2+t2
@@ -776,7 +1037,7 @@ static void get_X_on_curve(f2elm_t A, unsigned int* r, f2elm_t x, felm_t t1, fel
     fpsqr751_mont(a, t0);                            // t0 = a^2
     fpsqr751_mont(b, t1);                            // t1 = b^2
     fpadd751(t0, t1, t0);                            // t0 = t0+t1
-	fpcopy751(t0, t1);	
+    fpcopy751(t0, t1);	
     for (i = 0; i < 370; i++) {                      // t1 = t0^((p+1) div 4)
         fpsqr751_mont(t1, t1);
     }
@@ -785,7 +1046,7 @@ static void get_X_on_curve(f2elm_t A, unsigned int* r, f2elm_t x, felm_t t1, fel
         fpmul751_mont(t1, t2, t1);
     }
     fpsqr751_mont(t1, t2);                           // t2 = t1^2
-	fpcorrection751(t0);
+    fpcorrection751(t0);
     fpcorrection751(t2);
     if (fpequal751_non_constant_time(t0, t2) == false) {
         fpadd751(v0, v0, x[0]);                      // x0 = v0+v0
@@ -827,8 +1088,8 @@ static void get_pt_on_curve(f2elm_t A, unsigned int* r, f2elm_t x, f2elm_t y)
     fpsqr751_mont(t3, t2);                           // t2 = t3^2
     fpdiv2_751(t1, t1);                              // t1 = t1/2
     fpmul751_mont(b, t1, t1);                        // t1 = t1*b
-	fpcorrection751(t0);
-	fpcorrection751(t2);
+    fpcorrection751(t0);
+    fpcorrection751(t2);
   
     if (fpequal751_non_constant_time(t0, t2) == true) {
         fpcopy751(t3, y[0]);                         // y0 = t3
@@ -838,7 +1099,7 @@ static void get_pt_on_curve(f2elm_t A, unsigned int* r, f2elm_t x, f2elm_t y)
         fpcopy751(t1, y[0]);                         // y0 = t1;
         fpcopy751(t3, y[1]);                         // y1 = -t3
     }
-  }
+}
 
 
 static void get_3_torsion_elt(f2elm_t A, unsigned int* r, point_proj_t P, point_proj_t P3, unsigned int* triples, PCurveIsogenyStruct CurveIsogeny)
@@ -850,25 +1111,26 @@ static void get_3_torsion_elt(f2elm_t A, unsigned int* r, point_proj_t P, point_
     *triples = 0;
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     fpadd751(one[0], one[0], C24[0]);
-	fpzero751(C24[1]);
+    fpzero751(C24[1]);
     
     get_X_on_curve(A, r, P->X, t0, t1, t2);
+
     fp2copy751(one, P->Z);                           // Z = 1
     xDBLe(P, P, A, one, 372);
 
-	fp2copy751(P->X, PP->X);                         // XX = X
+    fp2copy751(P->X, PP->X);                         // XX = X
     fp2copy751(P->Z, PP->Z);                         // ZZ = Z
 
     fp2add751(A, C24, A24);                          // A24 = A+2
     fpadd751(C24[0], C24[0], C24[0]);                // C24 = 4
 
-	fp2correction751(PP->Z);
+    fp2correction751(PP->Z);
     while (fpequal751_non_constant_time(PP->Z[0], zero) == false || fpequal751_non_constant_time(PP->Z[1], zero) == false) {
         fp2copy751(PP->X, P3->X);                    // X3 = XX
         fp2copy751(PP->Z, P3->Z);                    // Z3 = ZZ
         xTPL(PP, PP, A24, C24);
         (*triples)++;
-		fp2correction751(PP->Z);
+        fp2correction751(PP->Z);
     }
 }
 
@@ -880,17 +1142,18 @@ void generate_3_torsion_basis(f2elm_t A, point_full_proj_t R1, point_full_proj_t
     point_proj_t R, R3, R4;
     felm_t *X  = (felm_t*)R->X,  *Z  = (felm_t*)R->Z;
     felm_t *X3 = (felm_t*)R3->X, *Z3 = (felm_t*)R3->Z;
-	felm_t *X4 = (felm_t*)R4->X, *Z4 = (felm_t*)R4->Z;
+    felm_t *X4 = (felm_t*)R4->X, *Z4 = (felm_t*)R4->Z;
     felm_t *X1 = (felm_t*)R1->X, *Y1 = (felm_t*)R1->Y, *Z1 = (felm_t*)R1->Z;
     felm_t *X2 = (felm_t*)R2->X, *Y2 = (felm_t*)R2->Y, *Z2 = (felm_t*)R2->Z;
     f2elm_t u, v, c, f, t0, f0, fX, fY, Y, Y3, one = {0};
-	felm_t zero = {0};
+    felm_t zero = {0};
     unsigned int r = 1;         
     unsigned int triples = 0, pts_found = 0;
 
-    get_3_torsion_elt(A, &r, R, R3, &triples, CurveIsogeny);        
+    get_3_torsion_elt(A, &r, R, R3, &triples, CurveIsogeny);    
+    
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]); 
-	fpzero751(zero);
+    fpzero751(zero);
 
     if (triples == 239) {
         pts_found = 1;
@@ -938,124 +1201,234 @@ void generate_3_torsion_basis(f2elm_t A, point_full_proj_t R1, point_full_proj_t
     fp2mul751_mont(fY, c, fY);                       // fY = c*fY
     fp2mul751_mont(f0, c, f0);                       // f0 = c*f0
 
-	do {
-		while (pts_found < 2) {
-			r++;
-			get_pt_on_curve(A, &r, X, Y);
-			fp2mul751_mont(fX, X, f);                    // f = fX*X
-			fp2mul751_mont(fY, Y, t0);                   // t0 = fY*Y
-			fp2add751(f, t0, f);                         // f = f+t0
-			fp2add751(f, f0, f);                         // f = f+f0
+    do {
+        while (pts_found < 2) {
+            r++;
+            get_pt_on_curve(A, &r, X, Y);
+            fp2mul751_mont(fX, X, f);                    // f = fX*X
+            fp2mul751_mont(fY, Y, t0);                   // t0 = fY*Y
+            fp2add751(f, t0, f);                         // f = f+t0
+            fp2add751(f, f0, f);                         // f = f+f0
 
-			if (is_cube_Fp2(f, CurveIsogeny) == false) {
-				fp2copy751(one, Z);                      // Z = 1
-				xDBLe(R, R, A, one, 372);
-				fp2mul751_mont(A, Z, u);                 // u = A*Z
-				fp2add751(u, X, u);                      // u = u+X
-				fp2mul751_mont(u, X, u);                 // u = u*X
-				fp2sqr751_mont(Z, v);                    // v = Z^2
-				fp2add751(u, v, u);                      // u = u+v
-				fp2mul751_mont(u, X, u);                 // u = u*X
-				fp2mul751_mont(v, Z, v);                 // v = v*Z
-				sqrt_Fp2_frac(u, v, Y);                  // Y = sqrt(u/v)
-				fp2mul751_mont(Y, Z, Y);                 // Y = Y*Z
+            if (is_cube_Fp2(f, CurveIsogeny) == false) {
+                fp2copy751(one, Z);                      // Z = 1
+                xDBLe(R, R, A, one, 372);
+                fp2mul751_mont(A, Z, u);                 // u = A*Z
+                fp2add751(u, X, u);                      // u = u+X
+                fp2mul751_mont(u, X, u);                 // u = u*X
+                fp2sqr751_mont(Z, v);                    // v = Z^2
+                fp2add751(u, v, u);                      // u = u+v
+                fp2mul751_mont(u, X, u);                 // u = u*X
+                fp2mul751_mont(v, Z, v);                 // v = v*Z
+                sqrt_Fp2_frac(u, v, Y);                  // Y = sqrt(u/v)
+                fp2mul751_mont(Y, Z, Y);                 // Y = Y*Z
 
-				if (pts_found == 0) {
-					fp2copy751(X, X1);                   // X1 = X
-					fp2copy751(Y, Y1);                   // Y1 = Y
-					fp2copy751(Z, Z1);                   // Z1 = Z
-					xTPLe(R, R3, A, one, 238);
-				} else {
-					fp2copy751(X, X2);                   // X2 = X
-					fp2copy751(Y, Y2);                   // Y2 = Y
-					fp2copy751(Z, Z2);                   // Z2 = Z
-					xTPLe(R, R4, A, one, 238);
-				}
-				pts_found++;
-			}
-		}
-		fp2mul751_mont(X3, Z4, t0);
-		fp2mul751_mont(X4, Z3, v);
-		fp2sub751(t0, v, t0);
-		fp2correction751(t0);
-		pts_found--;
-	} while (fpequal751_non_constant_time(t0[0], zero) == true && fpequal751_non_constant_time(t0[1], zero) == true);
+                if (pts_found == 0) {
+                    fp2copy751(X, X1);                   // X1 = X
+                    fp2copy751(Y, Y1);                   // Y1 = Y
+                    fp2copy751(Z, Z1);                   // Z1 = Z
+                    xTPLe(R, R3, A, one, 238);
+                } else {
+                    fp2copy751(X, X2);                   // X2 = X
+                    fp2copy751(Y, Y2);                   // Y2 = Y
+                    fp2copy751(Z, Z2);                   // Z2 = Z
+                    xTPLe(R, R4, A, one, 238);
+                }
+                pts_found++;
+            }
+        }
+        fp2mul751_mont(X3, Z4, t0);
+        fp2mul751_mont(X4, Z3, v);
+        fp2sub751(t0, v, t0);
+        fp2correction751(t0);
+        pts_found--;
+    } while (fpequal751_non_constant_time(t0[0], zero) == true && fpequal751_non_constant_time(t0[1], zero) == true);
+}
+
+
+void CompleteMPoint(f2elm_t A, point_proj_t P, point_full_proj_t R, PCurveIsogenyStruct CurveIsogeny)
+{
+    f2elm_t zero = {0}, one = {0}, xz, yz, s2, r2, invz, temp0, temp1;
+    fpcopy751(CurveIsogeny->Montgomery_one,one[0]);
+    
+    if (fp2compare751(P->Z,zero) != 0) {
+        fp2mul751_mont(P->X,P->Z,xz);       // xz = x*z;
+        fpsub751(P->X[0],P->Z[1],temp0[0]);
+        fpadd751(P->X[1],P->Z[0],temp0[1]);
+        fpadd751(P->X[0],P->Z[1],temp1[0]);
+        fpsub751(P->X[1],P->Z[0],temp1[1]);        
+        fp2mul751_mont(temp0,temp1,s2);     // s2 = (x + i*z)*(x - i*z);
+        fp2mul751_mont(A,xz,temp0);
+        fp2add751(temp0,s2,temp1);
+        fp2mul751_mont(xz,temp1,r2);        // r2 = xz*(A*xz + s2);
+        sqrtinv2(r2,P->Z,yz,invz);
+        fp2mul751_mont(P->X,invz,R->X);
+        fp2sqr751_mont(invz,temp0);
+        fp2mul751_mont(yz,temp0,R->Y);      // R = EM![x*invz, yz*invz^2];
+        fp2copy751(one,R->Z);
+    } else {
+        fp2copy751(zero,R->X);
+        fp2copy751(one,R->Y); 
+        fp2copy751(zero,R->Z);              // R = EM!0;
+    }
+}
+
+
+// xz-only construction of a point of order 3^n in the Montgomery curve y^2 = x^3 + A*x^2 + x from base counter r.
+// This is essentially the Elligator 2 technique coupled with cofactor multiplication and LI checking.
+void BasePoint3n(f2elm_t A, unsigned int *r, point_proj_t P, point_proj_t Q, PCurveIsogenyStruct CurveIsogeny)
+{
+    int i;
+    felm_t one, a2, b2, N, temp0, temp1;
+    f2elm_t A2, A24, two = {0}, zero = {0}, v, x, y2, temp, one_fp2 = {0};
+    point_proj_t S;
+    
+    fpcopy751(CurveIsogeny->Montgomery_one, one);
+    fpcopy751(CurveIsogeny->Montgomery_one, one_fp2[0]);
+    fp2div2_751(A,A2);
+    fpcopy751(CurveIsogeny->Montgomery_one,two[0]);
+    fpadd751(two[0], two[0], two[0]);
+    fp2add751(A,two,A24);
+    fp2div2_751(A24,A24);
+    fp2div2_751(A24,A24);
+
+    do {
+        *r += 1;
+        fp2copy751((felm_t*)&v_3_torsion[*r-1], v); //v := 1/(1 + U*r^2); //table lookup
+        fp2copy751(A,two);
+        fp2neg751(two);
+        fp2mul751_mont(two,v,x);  //x = -A*v;
+        fp2mul751_mont(A,x,y2);  
+        fpadd751(y2[0], one, y2[0]);
+        fp2sqr751_mont(x,temp);
+        fp2add751(temp,y2,y2);
+        fp2mul751_mont(x,y2,y2); // y2 = x*(x^2 + A*x + 1);
+        fpsqr751_mont(y2[0],a2);
+        fpsqr751_mont(y2[1],b2);
+        fpadd751(a2,b2,N);       // N := Fp!norm(y2);
+
+        fpcopy751(N,temp0);
+        for (i = 0; i < 370; i++) {    
+            fpsqr751_mont(temp0, temp0);
+        }
+        for (i = 0; i < 239; i++) {
+            fpsqr751_mont(temp0, temp1);
+            fpmul751_mont(temp0, temp1, temp0);
+        }
+        fpsqr751_mont(temp0,temp1);  // z = N^((p + 1) div 4);
+        fpcorrection751(temp1);
+        fpcorrection751(N);
+        if (fpcompare751(temp1,N) != 0) {
+            fp2neg751(x);
+            fp2sub751(x,A,x);        // x = -x - A;
+        }
+        fp2copy751(x,S->X);
+        fp2copy751(one_fp2,S->Z);
+        Double(S,P,A24,CurveIsogeny->oAbits);   // x, z := Double(A24, x, 1, eA);
+        xTPLe_fast(P,Q,A2,CurveIsogeny->eB-1);  // t, w := Triple(A_2, x, z, eB-1);
+        fp2correction751(Q->X);
+        fp2correction751(Q->Z);
+    }   while (fp2compare751(Q->Z,zero) == 0);
+}
+
+
+void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny)
+{
+    unsigned int r = 0;
+    f2elm_t t2w1, t1w2;
+    point_proj_t P, Q, R, S;
+    
+    // 1st basis point:
+    BasePoint3n(A, &r, P, Q, CurveIsogeny);
+    
+    // 2nd basis point:
+    do {
+        BasePoint3n(A, &r, R, S, CurveIsogeny);
+        fp2mul751_mont(S->X,Q->Z,t2w1);
+        fp2mul751_mont(Q->X,S->Z,t1w2);
+        fp2correction751(t2w1);
+        fp2correction751(t1w2);
+    } while (fp2compare751(t2w1,t1w2) == 0); // Pr[t2/w2 == t1/w1] = 1/4: E[loop length] = 4/3
+
+    // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
+    CompleteMPoint(A,P,R1,CurveIsogeny);    // R1 := CompleteMPoint(EM, A, x1, z1)
+    CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)
 }
 
 
 static void dbl_and_line(const point_ext_proj_t P, const f2elm_t A, f2elm_t lx, f2elm_t ly, f2elm_t l0, f2elm_t v0)
 { // Doubling step for computing the Tate pairing using Miller's algorithm.
   // This function computes a point doubling of P and returns the corresponding line coefficients for the pairing doubling step.
-	felm_t *X2 = (felm_t*)P->X2, *XZ = (felm_t*)P->XZ, *YZ = (felm_t*)P->YZ, *Z2 = (felm_t*)P->Z2;
-	f2elm_t XX2, t0;
+    felm_t *X2 = (felm_t*)P->X2, *XZ = (felm_t*)P->XZ, *YZ = (felm_t*)P->YZ, *Z2 = (felm_t*)P->Z2;
+    f2elm_t XX2, t0;
 
-	fp2add751(YZ, YZ, XX2);               //X2_: = YZ + YZ;
-	fp2sqr751_mont(XX2, ly);              //ly: = X2_ ^ 2;
-	fp2sub751(X2, Z2, l0);                //l0: = X2 - Z2;
-	fp2sqr751_mont(l0, v0);               //v0: = l0 ^ 2;
-	fp2mul751_mont(XX2, l0, l0);          //l0: = X2_*l0;
-	fp2mul751_mont(XZ, l0, lx);           //lx: = XZ*l0;
-	fp2mul751_mont(YZ, ly, XX2);          //X2_: = YZ*ly;
-	fp2add751(XX2, lx, lx);               //lx: = X2_ + lx;
-	fp2add751(X2, Z2, YZ);                //YZ: = X2 + Z2;
-	fp2mul751_mont(A, YZ, YZ);            //YZ: = A*YZ;
-	fp2add751(XZ, XZ, XX2);               //X2_: = XZ + XZ;
-	fp2add751(XX2, YZ, YZ);               //YZ: = X2_ + YZ;
-	fp2add751(XX2, YZ, YZ);                  //YZ_: = X2_ + YZ_;
-	fp2mul751_mont(XX2, YZ, YZ);          //YZ_: = X2_*YZ_;
+    fp2add751(YZ, YZ, XX2);               //X2_: = YZ + YZ;
+    fp2sqr751_mont(XX2, ly);              //ly: = X2_ ^ 2;
+    fp2sub751(X2, Z2, l0);                //l0: = X2 - Z2;
+    fp2sqr751_mont(l0, v0);               //v0: = l0 ^ 2;
+    fp2mul751_mont(XX2, l0, l0);          //l0: = X2_*l0;
+    fp2mul751_mont(XZ, l0, lx);           //lx: = XZ*l0;
+    fp2mul751_mont(YZ, ly, XX2);          //X2_: = YZ*ly;
+    fp2add751(XX2, lx, lx);               //lx: = X2_ + lx;
+    fp2add751(X2, Z2, YZ);                //YZ: = X2 + Z2;
+    fp2mul751_mont(A, YZ, YZ);            //YZ: = A*YZ;
+    fp2add751(XZ, XZ, XX2);               //X2_: = XZ + XZ;
+    fp2add751(XX2, YZ, YZ);               //YZ: = X2_ + YZ;
+    fp2add751(XX2, YZ, YZ);               //YZ_: = X2_ + YZ_;
+    fp2mul751_mont(XX2, YZ, YZ);          //YZ_: = X2_*YZ_;
 
-	fp2sqr751_mont(v0, XX2);              //X2_: = v0 ^ 2;
-	fp2sqr751_mont(l0, t0);               //XZ_: = l0 ^ 2;
-	fp2sqr751_mont(ly, Z2);               //Z2: = ly ^ 2;
-	fp2add751(v0, YZ, YZ);                   //YZ: = v0 + YZ;
-	fp2mul751_mont(l0, YZ, YZ);           //YZ: = l0*Y_;
+    fp2sqr751_mont(v0, XX2);              //X2_: = v0 ^ 2;
+    fp2sqr751_mont(l0, t0);               //XZ_: = l0 ^ 2;
+    fp2sqr751_mont(ly, Z2);               //Z2: = ly ^ 2;
+    fp2add751(v0, YZ, YZ);                   //YZ: = v0 + YZ;
+    fp2mul751_mont(l0, YZ, YZ);           //YZ: = l0*Y_;
 
-	fp2mul751_mont(XZ, ly, ly);           //ly: = XZ*ly;
-	fp2mul751_mont(X2, l0, l0);           //l0: = X2*l0;
-	fp2mul751_mont(XZ, v0, v0);           //v0: = XZ*v0;
+    fp2mul751_mont(XZ, ly, ly);           //ly: = XZ*ly;
+    fp2mul751_mont(X2, l0, l0);           //l0: = X2*l0;
+    fp2mul751_mont(XZ, v0, v0);           //v0: = XZ*v0;
 
-	fp2copy751(XX2, X2);
-	fp2copy751(t0, XZ);
+    fp2copy751(XX2, X2);
+    fp2copy751(t0, XZ);
 }
 
 static void absorb_line(const f2elm_t lx, const f2elm_t ly, const f2elm_t l0, const f2elm_t v0, const point_t P, f2elm_t n, f2elm_t d)
 { // Absorbing line function values during Miller's algorithm.
   // Evaluate the line functions at the point P and multiply values into the running value n/d of the pairing value, keeping numerator n
   // and denominator d separate.
-	felm_t *x = (felm_t*)P->x, *y = (felm_t*)P->y;
-	f2elm_t l, v;
+    felm_t *x = (felm_t*)P->x, *y = (felm_t*)P->y;
+    f2elm_t l, v;
 
-	fp2mul751_mont(lx, x, l);                        // l = lx*x
-	fp2mul751_mont(ly, y, v);                        // v = ly*y
-	fp2sub751(v, l, l);                              // l = v-l
-	fp2add751(l0, l, l);                             // l = l+l0
-	fp2mul751_mont(ly, x, v);                        // v = ly*x
-	fp2sub751(v, v0, v);                             // v = v+v0
-	fp2mul751_mont(n, l, n);                         // n = n*l
-	fp2mul751_mont(d, v, d);                         // d = d*v
+    fp2mul751_mont(lx, x, l);                        // l = lx*x
+    fp2mul751_mont(ly, y, v);                        // v = ly*y
+    fp2sub751(v, l, l);                              // l = v-l
+    fp2add751(l0, l, l);                             // l = l+l0
+    fp2mul751_mont(ly, x, v);                        // v = ly*x
+    fp2sub751(v, v0, v);                             // v = v+v0
+    fp2mul751_mont(n, l, n);                         // n = n*l
+    fp2mul751_mont(d, v, d);                         // d = d*v
 }
 
 
 static void square_and_absorb_line(const f2elm_t lx, const f2elm_t ly, const f2elm_t l0, const f2elm_t v0, const point_t P, f2elm_t n, f2elm_t d)
 { // Square the running pairing value in Miller's algorithm and absorb line function values of the current Miller step.
-	fp2sqr751_mont(n, n);                            // n = n^2
-	fp2sqr751_mont(d, d);                            // d = d^2
-	absorb_line(lx, ly, l0, v0, P, n, d);
+    fp2sqr751_mont(n, n);                            // n = n^2
+    fp2sqr751_mont(d, d);                            // d = d^2
+    absorb_line(lx, ly, l0, v0, P, n, d);
 }
 
 
 static void final_dbl_iteration(const point_ext_proj_t P, const f2elm_t x, f2elm_t n, f2elm_t d)
 { // Special iteration for the final doubling step in Miller's algorithm. This is necessary since the doubling 
   // at the end of the Miller loop is an exceptional case (doubling a point of order 2).
-	felm_t *X = (felm_t*)P->XZ, *Z = (felm_t*)P->Z2;
-	f2elm_t l;
+    felm_t *X = (felm_t*)P->XZ, *Z = (felm_t*)P->Z2;
+    f2elm_t l;
 
-	fp2sqr751_mont(n, n);                            // n = n^2
-	fp2sqr751_mont(d, d);                            // d = d^2
-	fp2mul751_mont(Z, d, d);                         // d = d*Z
-	fp2mul751_mont(Z, x, l);                         // l = Z*x
-	fp2sub751(l, X, l);                              // l = l-X
-	fp2mul751_mont(n, l, n);                         // n = n*l
+    fp2sqr751_mont(n, n);                            // n = n^2
+    fp2sqr751_mont(d, d);                            // d = d^2
+    fp2mul751_mont(Z, d, d);                         // d = d*Z
+    fp2mul751_mont(Z, x, l);                         // l = Z*x
+    fp2sub751(l, X, l);                              // l = l-X
+    fp2mul751_mont(n, l, n);                         // n = n*l
 }
 
 
@@ -1078,261 +1451,570 @@ static void final_exponentiation_2_torsion(f2elm_t n, f2elm_t d, const f2elm_t n
 }
 
 
+static void final_exponentiation_2_torsion_fast(f2elm_t f, const f2elm_t finv, f2elm_t fout, PCurveIsogenyStruct CurveIsogeny)
+{ // The final exponentiation for pairings in the 2-torsion group. Raising the value f to the power (p^2-1)/2^eA.
+    felm_t one = {0};
+    f2elm_t temp;
+    unsigned int i; 
+
+    fpcopy751(CurveIsogeny->Montgomery_one, one);
+    
+    //f = f^p, just call conjugation function
+    fp2_conj(f, temp);
+    fp2mul751_mont(temp, finv, temp);                // temp = f^(p-1)
+
+    for (i = 0; i < CurveIsogeny->oBbits; i++) {
+        cube_Fp2_cycl(temp, one);
+    }
+    fp2copy751(temp, fout);
+}
+
+
+static void final_exponentiation_3_torsion_fast(f2elm_t f, const f2elm_t finv, f2elm_t fout, PCurveIsogenyStruct CurveIsogeny)
+{ // The final exponentiation for pairings in the 3-torsion group. Raising the value f to the power (p^2-1)/3^eB.
+    felm_t one = {0};
+    f2elm_t temp;
+    unsigned int i; 
+
+    fpcopy751(CurveIsogeny->Montgomery_one, one);
+    
+    //f = f^p, just call conjugation function
+    fp2_conj(f, temp);
+    fp2mul751_mont(temp, finv, temp);                // temp = f^(p-1)
+
+    for (i = 0; i < CurveIsogeny->oAbits; i++) {
+        sqr_Fp2_cycl(temp, one);
+    }
+    fp2copy751(temp, fout);
+}
+
+
 void Tate_pairings_2_torsion(const point_t R1, const point_t R2, const point_t P, const point_t Q, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny)
 { // The doubling only 2-torsion Tate pairing of order 2^eA, consisting of the doubling only Miller loop and the final exponentiation.]
   // Computes 5 pairings at once: e(R1, R2), e(R1, P), e(R1, Q), e(R2, P), e(R2,Q).
-	point_ext_proj_t P1 = { 0 }, P2 = { 0 };
-	f2elm_t lx1, ly1, l01, v01, lx2, ly2, l02, v02;
-	f2elm_t invs[10], nd[10] = { 0 };
-	felm_t one = { 0 };
-	unsigned int i;
+    point_ext_proj_t P1 = { 0 }, P2 = { 0 };
+    f2elm_t lx1, ly1, l01, v01, lx2, ly2, l02, v02;
+    f2elm_t invs[10], nd[10] = { 0 };
+    felm_t one = { 0 };
+    unsigned int i;
 
-	fpcopy751(CurveIsogeny->Montgomery_one, one);
-	fp2copy751(R1->x, P1->XZ);
-	fp2sqr751_mont(P1->XZ, P1->X2);
-	fp2copy751(R1->y, P1->YZ);
-	fpcopy751(one, P1->Z2[0]);                       // P1 = (x1^2,x1,1,y1)    
-	fp2copy751(R2->x, P2->XZ);
-	fp2sqr751_mont(P2->XZ, P2->X2);
-	fp2copy751(R2->y, P2->YZ);
-	fpcopy751(one, P2->Z2[0]);                       // P2 = (x2^2,x2,1,y2)
+    fpcopy751(CurveIsogeny->Montgomery_one, one);
+    fp2copy751(R1->x, P1->XZ);
+    fp2sqr751_mont(P1->XZ, P1->X2);
+    fp2copy751(R1->y, P1->YZ);
+    fpcopy751(one, P1->Z2[0]);                       // P1 = (x1^2,x1,1,y1)    
+    fp2copy751(R2->x, P2->XZ);
+    fp2sqr751_mont(P2->XZ, P2->X2);
+    fp2copy751(R2->y, P2->YZ);
+    fpcopy751(one, P2->Z2[0]);                       // P2 = (x2^2,x2,1,y2)
 
-	for (i = 0; i < 10; i++) {                       // nd[i] = 1
-		fpcopy751(one, nd[i][0]);
-	}
+    for (i = 0; i < 10; i++) {                       // nd[i] = 1
+        fpcopy751(one, nd[i][0]);
+    }
 
-	for (i = 0; i < 371; i++) {
-		dbl_and_line(P1, A, lx1, ly1, l01, v01); // vx = ly
-		dbl_and_line(P2, A, lx2, ly2, l02, v02); // vx = ly
-		square_and_absorb_line(lx1, ly1, l01, v01, R2, nd[0], nd[5]);
-		square_and_absorb_line(lx1, ly1, l01, v01, P, nd[1], nd[6]);
-		square_and_absorb_line(lx1, ly1, l01, v01, Q, nd[2], nd[7]);
-		square_and_absorb_line(lx2, ly2, l02, v02, P, nd[3], nd[8]);
-		square_and_absorb_line(lx2, ly2, l02, v02, Q, nd[4], nd[9]);
-	}
+    for (i = 0; i < 371; i++) {
+        dbl_and_line(P1, A, lx1, ly1, l01, v01); // vx = ly
+        dbl_and_line(P2, A, lx2, ly2, l02, v02); // vx = ly
+        square_and_absorb_line(lx1, ly1, l01, v01, R2, nd[0], nd[5]);
+        square_and_absorb_line(lx1, ly1, l01, v01, P, nd[1], nd[6]);
+        square_and_absorb_line(lx1, ly1, l01, v01, Q, nd[2], nd[7]);
+        square_and_absorb_line(lx2, ly2, l02, v02, P, nd[3], nd[8]);
+        square_and_absorb_line(lx2, ly2, l02, v02, Q, nd[4], nd[9]);
+    }
 
-	final_dbl_iteration(P1, R2->x, nd[0], nd[5]);
-	final_dbl_iteration(P1, P->x, nd[1], nd[6]);
-	final_dbl_iteration(P1, Q->x, nd[2], nd[7]);
-	final_dbl_iteration(P2, P->x, nd[3], nd[8]);
-	final_dbl_iteration(P2, Q->x, nd[4], nd[9]);
-	mont_n_way_inv(nd, 10, invs);
-	final_exponentiation_2_torsion(nd[0], nd[5], invs[0], invs[5], n[0], CurveIsogeny);
-	final_exponentiation_2_torsion(nd[1], nd[6], invs[1], invs[6], n[1], CurveIsogeny);
-	final_exponentiation_2_torsion(nd[2], nd[7], invs[2], invs[7], n[2], CurveIsogeny);
-	final_exponentiation_2_torsion(nd[3], nd[8], invs[3], invs[8], n[3], CurveIsogeny);
-	final_exponentiation_2_torsion(nd[4], nd[9], invs[4], invs[9], n[4], CurveIsogeny);
+    final_dbl_iteration(P1, R2->x, nd[0], nd[5]);
+    final_dbl_iteration(P1, P->x, nd[1], nd[6]);
+    final_dbl_iteration(P1, Q->x, nd[2], nd[7]);
+    final_dbl_iteration(P2, P->x, nd[3], nd[8]);
+    final_dbl_iteration(P2, Q->x, nd[4], nd[9]);
+    mont_n_way_inv(nd, 10, invs);
+    final_exponentiation_2_torsion(nd[0], nd[5], invs[0], invs[5], n[0], CurveIsogeny);
+    final_exponentiation_2_torsion(nd[1], nd[6], invs[1], invs[6], n[1], CurveIsogeny);
+    final_exponentiation_2_torsion(nd[2], nd[7], invs[2], invs[7], n[2], CurveIsogeny);
+    final_exponentiation_2_torsion(nd[3], nd[8], invs[3], invs[8], n[3], CurveIsogeny);
+    final_exponentiation_2_torsion(nd[4], nd[9], invs[4], invs[9], n[4], CurveIsogeny);
 }
 
+
+void Tate_pairings_2_torsion_fast(const point_full_proj_t P, point_full_proj_t *Qj, f2elm_t a, int t, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny)
+{ // Compute the reduced Tate pairings e_{2^m}(P, Q_j) for the curve y^2 = x^3 + a*x + b:
+    f2elm_t h[t], one = {0}, zero = {0};
+    f2elm_t X, Y, Z, X2, Y2, Y4, M, S, T, XQ, temp;
+    f2elm_t Xp, Yp, Zp, Tp;
+    f2elm_t L, W, g;
+    
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    fp2copy751(P->X, X);
+    fp2copy751(P->Y, Y);
+    fp2copy751(P->Z, Z);
+    fp2sqr751_mont(Z, T);
+
+    for (int j = 0; j < t; j++) {
+        fp2copy751(one, n[j]);
+        fp2mul751_mont(T, Qj[j]->X, temp);
+        fp2sub751(temp, X, h[j]);
+    }
+    
+    for (int k = 0; k < CurveIsogeny->oAbits; k++) {
+        // point doubling and line function construction:
+        fp2sqr751_mont(X, X2);
+        fp2sqr751_mont(Y, Y2);
+        fp2sqr751_mont(Y2, Y4);
+        fp2sqr751_mont(T, temp);
+        fp2mul751_mont(a, temp, temp);
+        fp2add751(X2, X2, M);
+        fp2add751(M, X2, M);
+        fp2add751(M, temp, M);      // M = 3*X_2 + a*T^2
+        fp2add751(X, Y2, S);
+        fp2sqr751_mont(S, S);
+        fp2sub751(S, X2, S);
+        fp2sub751(S, Y4, S);
+        fp2add751(S, S, S);         // S = 2*((X + Y2)^2 - X2 - Y4)     
+        fp2sqr751_mont(M, temp);
+        fp2add751(S, S, Xp);
+        fp2sub751(temp, Xp, Xp);    // Xp = M^2 - 2*S
+        fp2sub751(S, Xp, temp);
+        fp2mul751_mont(M, temp, temp);
+        fp2shl751(Y4, 3, Yp);
+        fp2sub751(temp, Yp, Yp);    // Yp = M*(S - Xp) - 8*Y4
+        fp2add751(Y, Z, temp);
+        fp2sqr751_mont(temp, temp);
+        fp2sub751(temp, Y2, temp);
+        fp2sub751(temp, T, Zp);     // Zp = (Y + Z)^2 - Y2 - T
+        fp2sqr751_mont(Zp, Tp);     // Tp = Zp^2      
+        fp2mul751_mont(Zp, T, L);   // L = Zp*T
+        fp2add751(Y2, Y2, W);       // W = 2*Y2
+        
+        fp2correction751(Zp);
+        if (fp2compare751(Zp,zero) == 0) { // doubling exception for points in 2*E
+            fp2copy751(zero, Xp);
+            fp2copy751(one, Yp);            
+        }
+
+        // line function evaluation and accumulation:
+        for (int j = 0; j < t; j++) {
+            if (fp2compare751(Zp, zero) != 0) {
+                fp2mul751_mont(M, h[j], temp);
+                fp2add751(temp, W, temp);
+                fp2mul751_mont(L, Qj[j]->Y, g);
+                fp2sub751(temp, g, g);              // g = M*hj + W - L*Y_{Qj}
+                fp2mul751_mont(Tp, Qj[j]->X, temp);
+                fp2sub751(temp, Xp, h[j]);          // hj = Tp*X_{Qj} - Xp
+                fp2_conj(h[j], temp);
+                fp2mul751_mont(temp, g, g);         // g = g*hj^*
+            } else {
+                fp2copy751(h[j], g);
+            }
+            fp2sqr751_mont(n[j], n[j]);
+            fp2mul751_mont(n[j], g, n[j]);
+        }
+        fp2copy751(Xp, X);
+        fp2copy751(Yp, Y);
+        fp2copy751(Zp, Z);
+        fp2copy751(Tp, T);
+    }
+    
+    // final exponentiation:
+    mont_n_way_inv(n, t, h);
+    for (int j = 0; j < t; j++) {
+        fp2correction751(Qj[j]->Z);
+        if (fp2compare751(Qj[j]->Z, zero) == 0)
+            fp2copy751(one, n[j]);
+        else {
+            final_exponentiation_2_torsion_fast(n[j], h[j], n[j], CurveIsogeny);
+        }
+    }
+}
+
+void Tate_4_pairings_2_torsion(const point_full_proj_t P, const point_full_proj_t Q, const point_t S1, const point_t S2, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny)
+{ // The doubling only 2-torsion Tate pairing of order 2^eA, consisting of the doubling only Miller loop and the final exponentiation.]
+  // Computes 4 pairings at once: e(P, S1), e(P, S2), e(Q, S1), e(Q, S2).
+    point_full_proj_t Qj[2], PW, QW, QjW[2];
+    f2elm_t a, b, one = {0};
+    int t = 2;  
+    
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    
+    Monty2Weier(A, a, b, CurveIsogeny);
+    
+    // Assume S1 and S2 are normalized
+    fp2copy751(S1->x, Qj[0]->X);
+    fp2copy751(S1->y, Qj[0]->Y);
+    fp2copy751(one, Qj[0]->Z);
+    fp2copy751(S2->x, Qj[1]->X);
+    fp2copy751(S2->y, Qj[1]->Y);
+    fp2copy751(one, Qj[1]->Z);
+    
+    PointMonty2Weier(P, PW, A, CurveIsogeny);
+    PointMonty2Weier(Q, QW, A, CurveIsogeny);
+    PointMonty2Weier(Qj[0], QjW[0], A, CurveIsogeny);
+    PointMonty2Weier(Qj[1], QjW[1], A, CurveIsogeny);
+    
+    Tate_pairings_2_torsion_fast(PW, QjW, a, t, n, CurveIsogeny);
+    Tate_pairings_2_torsion_fast(QW, QjW, a, t, n + 2, CurveIsogeny);  
+    
+}
 
 static void tpl_and_parabola(point_ext_proj_t P, const f2elm_t A, f2elm_t ly, f2elm_t lx2, f2elm_t lx1, f2elm_t lx0, f2elm_t vx, f2elm_t v0)
 { // Tripling step for computing the Tate pairing using Miller's algorithm.
   // This function computes a point tripling of P and returns the coefficients of the corresponding parabola.
-	felm_t *X2 = (felm_t*)P->X2, *XZ = (felm_t*)P->XZ, *YZ = (felm_t*)P->YZ, *Z2 = (felm_t*)P->Z2;
+    felm_t *X2 = (felm_t*)P->X2, *XZ = (felm_t*)P->XZ, *YZ = (felm_t*)P->YZ, *Z2 = (felm_t*)P->Z2;
     f2elm_t AXZ, t0, t1, t2, t3, t4, tlx0, tlx1, tlx2;
 
-	fp2add751(YZ, YZ, ly);                //ly: = YZ + YZ
-	fp2sqr751_mont(ly, tlx2);             //lx2: = ly ^ 2
-	fp2mul751_mont(ly, tlx2, ly);         //ly: = ly*lx2
-	fp2mul751_mont(A, XZ, AXZ);           //AXZ: = A*XZ
-	fp2add751(AXZ, Z2, t0);               //t0: = AXZ + Z2
-	fp2add751(t0, t0, t0);                //t0: = t0 + t0
-	fp2add751(X2, Z2, t1);                //t1: = X2 + Z2
-	fp2add751(X2, X2, t2);                //t2: = X2 + X2
-	fp2sub751(X2, Z2, t3);                //t3: = X2 - Z2
-	fp2sqr751_mont(t3, t3);               //t3: = t3 ^ 2
-	fp2add751(t2, t0, t4);                //t4: = t2 + t0
-	fp2mul751_mont(t2, t4, tlx2);         //lx2: = t2*t4
-	fp2sub751(tlx2, t3, tlx2);            //lx2: = lx2 - t3
-	fp2add751(t4, t1, tlx1);              //lx1: = t4 + t1
-	fp2sqr751_mont(t1, t1);               //t1: = t1 ^ 2
-	fp2mul751_mont(AXZ, tlx1, tlx1);      //lx1: = AXZ*lx1
-	fp2add751(t1, tlx1, tlx1);            //lx1: = t1 + lx1
-	fp2add751(tlx1, tlx1, tlx1);          //lx1: = lx1 + lx1
-	fp2add751(t3, tlx1, tlx1);            //lx1: = t3 + lx1
-	fp2mul751_mont(Z2, t0, tlx0);         //lx0: = Z2*t0
-	fp2sub751(t3, tlx0, tlx0);            //lx0: = t3 - lx0
-	fp2add751(tlx0, tlx0, tlx0);          //lx0: = lx0 + lx0
-	fp2sub751(t1, tlx0, tlx0);            //lx0: = t1 - lx0
-	fp2mul751_mont(Z2, tlx2, lx2);        //lx2_: = Z2*lx2
-	fp2mul751_mont(XZ, tlx1, lx1);        //lx1_: = XZ*lx1
-	fp2add751(lx1, lx1, lx1);             //lx1_: = lx1_ + lx1_
-	fp2mul751_mont(X2, tlx0, lx0);        //lx0_: = X2*lx0
-										  // lx2_, lx1_, lx0_ done
-	fp2sqr751_mont(tlx2, t3);             //t3: = lx2 ^ 2
-	fp2mul751_mont(ly, t3, t2);           //t2: = ly*t3
-	fp2sqr751_mont(tlx0, t4);             //t4: = lx0 ^ 2
-	fp2sqr751_mont(t4, t0);               //t0: = t4 ^ 2
-	fp2mul751_mont(X2, t0, t0);           //t0: = X2*t0
-	fp2mul751_mont(ly, t0, X2);           //X2_: = ly*t0
-	fp2mul751_mont(XZ, t2, XZ);           //XZ_: = XZ*t2
-	fp2mul751_mont(XZ, t4, XZ);           //XZ_: = XZ_*t4
-	fp2mul751_mont(Z2, t2, Z2);           //Z2_: = Z2*t2
-	fp2mul751_mont(Z2, t3, Z2);           //Z2_: = Z2_*t3
-	fp2mul751_mont(tlx0, tlx1, t2);       //t2: = lx0*lx1
-	fp2add751(t2, t2, YZ);                //YZ_: = t2 + t2
-	fp2add751(YZ, t3, YZ);                //YZ_: = YZ_ + t3
-	fp2mul751_mont(lx0, tlx2, t2);        //t2: = lx0_*lx2
-	fp2mul751_mont(t2, YZ, YZ);           //YZ_: = t2*YZ_
-	fp2add751(t0, YZ, YZ);                //YZ_: = t0 + YZ_
-	fp2mul751_mont(lx2, YZ, YZ);          //YZ_: = lx2_*YZ_
-	fp2neg751(YZ);                        //YZ_: = -YZ_
-										  // X2_,XZ_,Z2_,YZ_ done
-	fp2copy751(Z2, vx);                   //vx: = Z2_
-	fp2copy751(XZ, v0);                   //v0: = -XZ_
-	fp2neg751(v0);
-	// vx,v0 done
+    fp2add751(YZ, YZ, ly);                //ly: = YZ + YZ
+    fp2sqr751_mont(ly, tlx2);             //lx2: = ly ^ 2
+    fp2mul751_mont(ly, tlx2, ly);         //ly: = ly*lx2
+    fp2mul751_mont(A, XZ, AXZ);           //AXZ: = A*XZ
+    fp2add751(AXZ, Z2, t0);               //t0: = AXZ + Z2
+    fp2add751(t0, t0, t0);                //t0: = t0 + t0
+    fp2add751(X2, Z2, t1);                //t1: = X2 + Z2
+    fp2add751(X2, X2, t2);                //t2: = X2 + X2
+    fp2sub751(X2, Z2, t3);                //t3: = X2 - Z2
+    fp2sqr751_mont(t3, t3);               //t3: = t3 ^ 2
+    fp2add751(t2, t0, t4);                //t4: = t2 + t0
+    fp2mul751_mont(t2, t4, tlx2);         //lx2: = t2*t4
+    fp2sub751(tlx2, t3, tlx2);            //lx2: = lx2 - t3
+    fp2add751(t4, t1, tlx1);              //lx1: = t4 + t1
+    fp2sqr751_mont(t1, t1);               //t1: = t1 ^ 2
+    fp2mul751_mont(AXZ, tlx1, tlx1);      //lx1: = AXZ*lx1
+    fp2add751(t1, tlx1, tlx1);            //lx1: = t1 + lx1
+    fp2add751(tlx1, tlx1, tlx1);          //lx1: = lx1 + lx1
+    fp2add751(t3, tlx1, tlx1);            //lx1: = t3 + lx1
+    fp2mul751_mont(Z2, t0, tlx0);         //lx0: = Z2*t0
+    fp2sub751(t3, tlx0, tlx0);            //lx0: = t3 - lx0
+    fp2add751(tlx0, tlx0, tlx0);          //lx0: = lx0 + lx0
+    fp2sub751(t1, tlx0, tlx0);            //lx0: = t1 - lx0
+    fp2mul751_mont(Z2, tlx2, lx2);        //lx2_: = Z2*lx2
+    fp2mul751_mont(XZ, tlx1, lx1);        //lx1_: = XZ*lx1
+    fp2add751(lx1, lx1, lx1);             //lx1_: = lx1_ + lx1_
+    fp2mul751_mont(X2, tlx0, lx0);        //lx0_: = X2*lx0
+                                                                              // lx2_, lx1_, lx0_ done
+    fp2sqr751_mont(tlx2, t3);             //t3: = lx2 ^ 2
+    fp2mul751_mont(ly, t3, t2);           //t2: = ly*t3
+    fp2sqr751_mont(tlx0, t4);             //t4: = lx0 ^ 2
+    fp2sqr751_mont(t4, t0);               //t0: = t4 ^ 2
+    fp2mul751_mont(X2, t0, t0);           //t0: = X2*t0
+    fp2mul751_mont(ly, t0, X2);           //X2_: = ly*t0
+    fp2mul751_mont(XZ, t2, XZ);           //XZ_: = XZ*t2
+    fp2mul751_mont(XZ, t4, XZ);           //XZ_: = XZ_*t4
+    fp2mul751_mont(Z2, t2, Z2);           //Z2_: = Z2*t2
+    fp2mul751_mont(Z2, t3, Z2);           //Z2_: = Z2_*t3
+    fp2mul751_mont(tlx0, tlx1, t2);       //t2: = lx0*lx1
+    fp2add751(t2, t2, YZ);                //YZ_: = t2 + t2
+    fp2add751(YZ, t3, YZ);                //YZ_: = YZ_ + t3
+    fp2mul751_mont(lx0, tlx2, t2);        //t2: = lx0_*lx2
+    fp2mul751_mont(t2, YZ, YZ);           //YZ_: = t2*YZ_
+    fp2add751(t0, YZ, YZ);                //YZ_: = t0 + YZ_
+    fp2mul751_mont(lx2, YZ, YZ);          //YZ_: = lx2_*YZ_
+    fp2neg751(YZ);                        //YZ_: = -YZ_
+                                                                              // X2_,XZ_,Z2_,YZ_ done
+    fp2copy751(Z2, vx);                   //vx: = Z2_
+    fp2copy751(XZ, v0);                   //v0: = -XZ_
+    fp2neg751(v0);
+    // vx,v0 done
 }
 
 
 static void absorb_parab(const f2elm_t ly, const f2elm_t lx2, const f2elm_t lx1, const f2elm_t lx0, const f2elm_t vx, const f2elm_t v0, const point_t P, f2elm_t n, f2elm_t d)
 { // Absorbing parabola function values in Miller's algorithm.
   // Evaluate the parabola at P and absorb the values into the running pairing value n/d, keeping numerator n and denominator d separate.
-	felm_t *x = (felm_t*)P->x, *y = (felm_t*)P->y;
-	f2elm_t ln, ld;
+    felm_t *x = (felm_t*)P->x, *y = (felm_t*)P->y;
+    f2elm_t ln, ld;
 
-	fp2mul751_mont(lx0, x, ln);           // ln = lx0*x
-	fp2mul751_mont(v0, x, ld);            // ld = v0*x
-	fp2add751(vx, ld, ld);                // ld = vx + ld
-	fp2mul751_mont(ld, ln, ld);           // ld = ld*ln
-	fp2mul751_mont(d, ld, d);			  // d = d*ld
+    fp2mul751_mont(lx0, x, ln);           // ln = lx0*x
+    fp2mul751_mont(v0, x, ld);            // ld = v0*x
+    fp2add751(vx, ld, ld);                // ld = vx + ld
+    fp2mul751_mont(ld, ln, ld);           // ld = ld*ln
+    fp2mul751_mont(d, ld, d);			  // d = d*ld
 
-	fp2add751(lx1, ln, ln);               // ln = lx1 + ln
-	fp2mul751_mont(x, ln, ln);            // ln = x*ln
-	fp2mul751_mont(ly, y, ld);            // t = ly*y
-	fp2add751(lx2, ln, ln);               // ln = lx2 + ln
-	fp2add751(ld, ln, ln);                // ln = t + ln
-	fp2mul751_mont(ln, v0, ln);           // ln = ln*v0
-	fp2mul751_mont(n, ln, n);             // n = n*ln
+    fp2add751(lx1, ln, ln);               // ln = lx1 + ln
+    fp2mul751_mont(x, ln, ln);            // ln = x*ln
+    fp2mul751_mont(ly, y, ld);            // t = ly*y
+    fp2add751(lx2, ln, ln);               // ln = lx2 + ln
+    fp2add751(ld, ln, ln);                // ln = t + ln
+    fp2mul751_mont(ln, v0, ln);           // ln = ln*v0
+    fp2mul751_mont(n, ln, n);             // n = n*ln
 }
+
 
 static void cube_and_absorb_parab(const f2elm_t ly, const f2elm_t lx2, const f2elm_t lx1, const f2elm_t lx0, const f2elm_t vx, const f2elm_t v0, const point_t P, f2elm_t n, f2elm_t d)
 { // Cube the running pairing value in Miller's algorithm and absorb parabola function values of the current Miller step.
-	f2elm_t ln, ld;
+    f2elm_t ln, ld;
 
-	fp2sqr751_mont(n, ln);             // ln = n ^ 2
-	fp2mul751_mont(n, ln, n);          // n = n*ln
-	fp2sqr751_mont(d, ld);             // ld = d ^ 2
-	fp2mul751_mont(d, ld, d);          // d = d*ld
-	absorb_parab(ly, lx2, lx1, lx0, vx, v0, P, n, d);
+    fp2sqr751_mont(n, ln);             // ln = n ^ 2
+    fp2mul751_mont(n, ln, n);          // n = n*ln
+    fp2sqr751_mont(d, ld);             // ld = d ^ 2
+    fp2mul751_mont(d, ld, d);          // d = d*ld
+    absorb_parab(ly, lx2, lx1, lx0, vx, v0, P, n, d);
 }
+
 
 static void final_tpl(point_ext_proj_t P, const f2elm_t A, f2elm_t lam, f2elm_t mu, f2elm_t D)
 { // Special iteration for the final tripling step in Miller's algorithm. This is necessary since the tripling 
   // at the end of the Miller loop is an exceptional case (tripling a point of order 3). Uses lines instead of 
   // parabolas.
-	felm_t *X2 = (felm_t*)P->X2, *XZ = (felm_t*)P->XZ, *YZ = (felm_t*)P->YZ, *Z2 = (felm_t*)P->Z2;
-	f2elm_t X, Y, Z, Y2, tX2, AX2, tXZ, tAXZ;
+    felm_t *X2 = (felm_t*)P->X2, *XZ = (felm_t*)P->XZ, *YZ = (felm_t*)P->YZ, *Z2 = (felm_t*)P->Z2;
+    f2elm_t X, Y, Z, Y2, tX2, AX2, tXZ, tAXZ;
 
-	fp2copy751(XZ, X);
-	fp2copy751(YZ, Y);
-	fp2copy751(Z2, Z);
+    fp2copy751(XZ, X);
+    fp2copy751(YZ, Y);
+    fp2copy751(Z2, Z);
 
-	fp2sqr751_mont(X, X2);             // X2 = X ^ 2
-	fp2add751(X2, X2, tX2);            // tX2 = X2 + X2
-	fp2mul751_mont(A, X2, AX2);        // AX2 = A*X2
-	fp2mul751_mont(X, Z, XZ);          // XZ = X*Z
-	fp2sqr751_mont(Y, Y2);             // Y2 = Y ^ 2
-	fp2add751(XZ, XZ, tXZ);            // tXZ = XZ + XZ
-	fp2mul751_mont(A, tXZ, tAXZ);      // tAXZ = A*tXZ
-	fp2sqr751_mont(Z, Z2);             // Z2 = Z ^ 2
-	fp2mul751_mont(Y, Z, YZ);          // YZ = Y*Z
+    fp2sqr751_mont(X, X2);             // X2 = X ^ 2
+    fp2add751(X2, X2, tX2);            // tX2 = X2 + X2
+    fp2mul751_mont(A, X2, AX2);        // AX2 = A*X2
+    fp2mul751_mont(X, Z, XZ);          // XZ = X*Z
+    fp2sqr751_mont(Y, Y2);             // Y2 = Y ^ 2
+    fp2add751(XZ, XZ, tXZ);            // tXZ = XZ + XZ
+    fp2mul751_mont(A, tXZ, tAXZ);      // tAXZ = A*tXZ
+    fp2sqr751_mont(Z, Z2);             // Z2 = Z ^ 2
+    fp2mul751_mont(Y, Z, YZ);          // YZ = Y*Z
 
-	fp2add751(X2, Z2, lam);            // lambda = X2 + Z2
-	fp2add751(lam, tX2, lam);          // lambda = lambda + tX2
-	fp2add751(lam, tAXZ, lam);         // lambda = lambda + tAXZ
-	fp2sub751(tXZ, Y2, mu);            // mu = tXZ - Y2
-	fp2add751(mu, AX2, mu);            // mu = mu + AX2
-	fp2add751(YZ, YZ, D);              // D = YZ + YZ
+    fp2add751(X2, Z2, lam);            // lambda = X2 + Z2
+    fp2add751(lam, tX2, lam);          // lambda = lambda + tX2
+    fp2add751(lam, tAXZ, lam);         // lambda = lambda + tAXZ
+    fp2sub751(tXZ, Y2, mu);            // mu = tXZ - Y2
+    fp2add751(mu, AX2, mu);            // mu = mu + AX2
+    fp2add751(YZ, YZ, D);              // D = YZ + YZ
 }
+
 
 static void final_tpl_iteration(const f2elm_t x, const f2elm_t y, const f2elm_t lam, const f2elm_t mu, const f2elm_t D, f2elm_t n, f2elm_t d)
 { // Special iteration for the final tripling step in Miller's algorithm. This is necessary since the tripling 
   // at the end of the Miller loop is an exceptional case (tripling a point of order 3). 
   // Cubes the running pairing value n/d and absorbs the line function values. 
-	f2elm_t ln, ld, t;
+    f2elm_t ln, ld, t;
 
-	fp2sqr751_mont(n, ln);             // ln = n ^ 2
-	fp2mul751_mont(n, ln, n);          // n = n*ln
-	fp2sqr751_mont(d, ld);             // ld = d ^ 2
-	fp2mul751_mont(d, ld, d);          // d = d*ld
-	fp2sqr751_mont(x, ld);             // ld = x ^ 2
-	fp2mul751_mont(mu, ld, ld);        // ld = mu*ld
-	fp2mul751_mont(lam, x, t);         // t = lambda*x
-	fp2add751(t, ld, ln);              // ln = t + ld
-	fp2mul751_mont(D, y, t);           // t = D*y
-	fp2add751(t, ln, ln);              // ln = t + ln
-	fp2mul751_mont(n, ln, n);          // n = n*ln
-	fp2mul751_mont(d, ld, d);          // d = d*ld
+    fp2sqr751_mont(n, ln);             // ln = n ^ 2
+    fp2mul751_mont(n, ln, n);          // n = n*ln
+    fp2sqr751_mont(d, ld);             // ld = d ^ 2
+    fp2mul751_mont(d, ld, d);          // d = d*ld
+    fp2sqr751_mont(x, ld);             // ld = x ^ 2
+    fp2mul751_mont(mu, ld, ld);        // ld = mu*ld
+    fp2mul751_mont(lam, x, t);         // t = lambda*x
+    fp2add751(t, ld, ln);              // ln = t + ld
+    fp2mul751_mont(D, y, t);           // t = D*y
+    fp2add751(t, ln, ln);              // ln = t + ln
+    fp2mul751_mont(n, ln, n);          // n = n*ln
+    fp2mul751_mont(d, ld, d);          // d = d*ld
 }
 
 
 static void final_exponentiation_3_torsion(f2elm_t n, f2elm_t d, const f2elm_t n_inv, const f2elm_t d_inv, f2elm_t nout, PCurveIsogenyStruct CurveIsogeny)
 { // The final exponentiation for pairings in the 3-torsion group. Raising the value n/d to the power (p^2-1)/3^eB.
-	felm_t one = {0};
-	unsigned int i;
+    felm_t one = {0};
+    unsigned int i;
 
-	fpcopy751(CurveIsogeny->Montgomery_one, one);
-	fp2mul751_mont(n, d_inv, n);                     // n = n*d_inv
-													 // n = n^p. Just call conjugation function
-	inv_Fp2_cycl(n);
-	fp2mul751_mont(d, n_inv, d);                     // d = d*n_inv
-	fp2mul751_mont(n, d, n);                         // n = n*d
+    fpcopy751(CurveIsogeny->Montgomery_one, one);
+    fp2mul751_mont(n, d_inv, n);                     // n = n*d_inv
+                                                                                                     // n = n^p. Just call conjugation function
+    inv_Fp2_cycl(n);
+    fp2mul751_mont(d, n_inv, d);                     // d = d*n_inv
+    fp2mul751_mont(n, d, n);                         // n = n*d
 
-	for (i = 0; i < 372; i++) {
-		sqr_Fp2_cycl(n, one);
-	}
-	fp2copy751(n, nout);
+    for (i = 0; i < 372; i++) {
+        sqr_Fp2_cycl(n, one);
+    }
+    fp2copy751(n, nout);
 }
 
 
 void Tate_pairings_3_torsion(const point_t R1, const point_t R2, const point_t P, const point_t Q, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny)
 { // The tripling only 3-torsion Tate pairing of order 3^eB, consisting of the tripling only Miller loop and the final exponentiation. 
   // Computes 5 pairings at once: e(R1, R2), e(R1, P), e(R1, Q), e(R2, P), e(R2,Q).
-	point_ext_proj_t P1 = {0}, P2 = {0};
-	f2elm_t ly, lx2, lx1, lx0, vx, v0, lam, mu, d;
-	f2elm_t invs[10], nd[10] = {0};
-	felm_t one = {0};
-	unsigned int i;
+    point_ext_proj_t P1 = {0}, P2 = {0};
+    f2elm_t ly, lx2, lx1, lx0, vx, v0, lam, mu, d;
+    f2elm_t invs[10], nd[10] = {0};
+    felm_t one = {0};
+    unsigned int i;
 
-	fpcopy751(CurveIsogeny->Montgomery_one, one);
-	fp2copy751(R1->x, P1->XZ);
-	fp2sqr751_mont(P1->XZ, P1->X2);
-	fp2copy751(R1->y, P1->YZ);
-	fpcopy751(one, P1->Z2[0]);                       // P1 = (x1^2,x1,1,y1)    
-	fp2copy751(R2->x, P2->XZ);
-	fp2sqr751_mont(P2->XZ, P2->X2);
-	fp2copy751(R2->y, P2->YZ);
-	fpcopy751(one, P2->Z2[0]);                       // P2 = (x2^2,x2,1,y2)
+    fpcopy751(CurveIsogeny->Montgomery_one, one);
+    fp2copy751(R1->x, P1->XZ);
+    fp2sqr751_mont(P1->XZ, P1->X2);
+    fp2copy751(R1->y, P1->YZ);
+    fpcopy751(one, P1->Z2[0]);                       // P1 = (x1^2,x1,1,y1)    
+    fp2copy751(R2->x, P2->XZ);
+    fp2sqr751_mont(P2->XZ, P2->X2);
+    fp2copy751(R2->y, P2->YZ);
+    fpcopy751(one, P2->Z2[0]);                       // P2 = (x2^2,x2,1,y2)
 
-	for (i = 0; i < 10; i++) {                       // nd[i] = 1
-		fpcopy751(one, nd[i][0]);
-	}
+    for (i = 0; i < 10; i++) {                       // nd[i] = 1
+        fpcopy751(one, nd[i][0]);
+    }
 
-	for (i = 239; i >= 2; i--) {
-		tpl_and_parabola(P1, A, ly, lx2, lx1, lx0, vx, v0);
-		cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, R2, nd[0], nd[5]);
-		cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, P, nd[1], nd[6]);
-		cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, Q, nd[2], nd[7]);
-		tpl_and_parabola(P2, A, ly, lx2, lx1, lx0, vx, v0);
-		cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, P, nd[3], nd[8]);
-		cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, Q, nd[4], nd[9]);
-	}
+    for (i = 239; i >= 2; i--) {
+        tpl_and_parabola(P1, A, ly, lx2, lx1, lx0, vx, v0);
+        cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, R2, nd[0], nd[5]);
+        cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, P, nd[1], nd[6]);
+        cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, Q, nd[2], nd[7]);
+        tpl_and_parabola(P2, A, ly, lx2, lx1, lx0, vx, v0);
+        cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, P, nd[3], nd[8]);
+        cube_and_absorb_parab(ly, lx2, lx1, lx0, vx, v0, Q, nd[4], nd[9]);
+    }
 
-	final_tpl(P1, A, lam, mu, d);
-	final_tpl_iteration(R2->x, R2->y, lam, mu, d, nd[0], nd[5]);
-	final_tpl_iteration(P->x, P->y, lam, mu, d, nd[1], nd[6]);
-	final_tpl_iteration(Q->x, Q->y, lam, mu, d, nd[2], nd[7]);
-	final_tpl(P2, A, lam, mu, d);
-	final_tpl_iteration(P->x, P->y, lam, mu, d, nd[3], nd[8]);
-	final_tpl_iteration(Q->x, Q->y, lam, mu, d, nd[4], nd[9]);
+    final_tpl(P1, A, lam, mu, d);
+    final_tpl_iteration(R2->x, R2->y, lam, mu, d, nd[0], nd[5]);
+    final_tpl_iteration(P->x, P->y, lam, mu, d, nd[1], nd[6]);
+    final_tpl_iteration(Q->x, Q->y, lam, mu, d, nd[2], nd[7]);
+    final_tpl(P2, A, lam, mu, d);
+    final_tpl_iteration(P->x, P->y, lam, mu, d, nd[3], nd[8]);
+    final_tpl_iteration(Q->x, Q->y, lam, mu, d, nd[4], nd[9]);
 
-	mont_n_way_inv(nd, 10, invs);
-	final_exponentiation_3_torsion(nd[0], nd[5], invs[0], invs[5], n[0], CurveIsogeny);
-	final_exponentiation_3_torsion(nd[1], nd[6], invs[1], invs[6], n[1], CurveIsogeny);
-	final_exponentiation_3_torsion(nd[2], nd[7], invs[2], invs[7], n[2], CurveIsogeny);
-	final_exponentiation_3_torsion(nd[3], nd[8], invs[3], invs[8], n[3], CurveIsogeny);
-	final_exponentiation_3_torsion(nd[4], nd[9], invs[4], invs[9], n[4], CurveIsogeny);
+    mont_n_way_inv(nd, 10, invs);
+    final_exponentiation_3_torsion(nd[0], nd[5], invs[0], invs[5], n[0], CurveIsogeny);
+    final_exponentiation_3_torsion(nd[1], nd[6], invs[1], invs[6], n[1], CurveIsogeny);
+    final_exponentiation_3_torsion(nd[2], nd[7], invs[2], invs[7], n[2], CurveIsogeny);
+    final_exponentiation_3_torsion(nd[3], nd[8], invs[3], invs[8], n[3], CurveIsogeny);
+    final_exponentiation_3_torsion(nd[4], nd[9], invs[4], invs[9], n[4], CurveIsogeny);
+}
+
+
+void Tate_pairings_3_torsion_fast(const point_full_proj_t P, point_full_proj_t *Qj, f2elm_t a, int t, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny)
+{ // The tripling only 3-torsion Tate pairing of order 3^eB, consisting of the tripling only Miller loop and the final exponentiation. 
+  // Computes 4 pairings at once: e(P, R1), e(P, R2), e(Q, R1), e(Q, R2).
+    f2elm_t h[t], one = {0}, zero = {0};
+    f2elm_t X, Y, Z, X2, Y2, Y4, M, S, T, XQ;
+    f2elm_t Xp, Yp, Zp, Tp, D, U, Up, Fp;
+    f2elm_t L, W, Wp, g, T2, M2, F, F2, d;
+    f2elm_t temp, temp1;
+    
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    fp2copy751(P->X, X);
+    fp2copy751(P->Y, Y);
+    fp2copy751(P->Z, Z);
+    fp2sqr751_mont(Z, T);
+
+    for (int j = 0; j < t; j++) {
+        fp2copy751(one, n[j]);
+        fp2mul751_mont(T, Qj[j]->X, temp);
+        fp2sub751(temp, X, h[j]);
+    }    
+    
+    for (int k = 0; k < CurveIsogeny->eB; k++) {
+        // point tripling and parabola function construction:        
+        fp2sqr751_mont(X, X2);
+        fp2sqr751_mont(Y, Y2);
+        fp2sqr751_mont(Y2, Y4);
+        fp2sqr751_mont(T, T2);
+        fp2add751(X2, X2, temp);
+        fp2add751(temp, X2, temp);
+        fp2mul751_mont(a, T2, M);
+        fp2add751(temp, M, M);      // M = 3*X2 + a*T2
+        fp2sqr751_mont(M, M2);
+        fp2add751(X, Y2, temp);
+        fp2sqr751_mont(temp, temp);
+        fp2sub751(temp, X2, temp);
+        fp2sub751(temp, Y4, D);     // D = (X + Y2)^2 - X2 - Y4
+        fp2add751(D, D, temp);
+        fp2add751(temp, D, temp);
+        fp2add751(temp, temp, temp);
+        fp2sub751(temp, M2, F);     // F = 6*D - M2
+        fp2sqr751_mont(F, F2);
+        fp2add751(Y2, Y2, W);
+        fp2add751(W, W, Wp);
+        fp2shl751(Y4, 4, S);
+        fp2add751(M, F, temp);
+        fp2sqr751_mont(temp, temp);
+        fp2sub751(temp, M2, temp);
+        fp2sub751(temp, F2, temp);
+        fp2sub751(temp, S, U);      // U = (M + F)^2 - M2 - F2 - S
+        fp2sub751(S, U, Up);
+        fp2mul751_mont(X, F2, temp);
+        fp2mul751_mont(Wp, U, Xp);
+        fp2sub751(temp, Xp, Xp);
+        fp2shl751(Xp, 2, Xp);       // Xp = 4*(X*F2 - Wp*U)
+        fp2mul751_mont(U, Up, temp);
+        fp2mul751_mont(F, F2, Yp);
+        fp2sub751(temp, Yp, Yp);
+        fp2mul751_mont(Y, Yp, Yp);
+        fp2shl751(Yp, 3, Yp);       // Yp = 8*Y*(U*Up - F*F2)
+        fp2add751(Z, F, temp);
+        fp2sqr751_mont(temp, temp);
+        fp2sub751(temp, T, temp);
+        fp2sub751(temp, F2, Zp);    // Zp = (Z + F)^2 - T - F2
+        fp2sqr751_mont(Zp, Tp);
+        fp2add751(Y, Z, temp);
+        fp2sqr751_mont(temp, temp);
+        fp2sub751(temp, Y2, temp);
+        fp2sub751(temp, T, temp);
+        fp2mul751_mont(temp, T, L);
+        fp2add751(F, F, Fp);       
+        
+        fp2correction751(Zp);
+        if (fp2compare751(Zp, zero) == 0) {
+            fp2copy751(zero, Xp);
+            fp2copy751(one, Yp);
+        }
+        // Parabola function evaluation and accumulation
+        for (int j = 0; j < t; j++) {
+            fp2mul751_mont(L, Qj[j]->Y, temp);
+            fp2sub751(W, temp, d);
+            if (fp2compare751(Zp, zero) != 0) {
+                fp2mul751_mont(M, h[j], temp);
+                fp2add751(d, temp, g);          // g = (M*h + d)
+                fp2mul751_mont(Up, h[j], temp);
+                fp2mul751_mont(Fp, d, temp1);
+                fp2add751(temp, temp1, temp1);
+                fp2mul751_mont(temp1, g, g);    // g = (M*h + d)*(Up*h + Fp*d)
+                fp2mul751_mont(Wp, h[j], temp);
+                fp2add751(F, temp, temp);
+                fp2_conj(temp, temp);
+                fp2mul751_mont(temp, g, g);     // g = (M*h + d)*(Up*h + Fp*d)*(Wp*h + F)^*
+                fp2mul751_mont(Tp, Qj[j]->X, temp);
+                fp2sub751(temp, Xp, h[j]);      // h = Tp*X_{Qj} - Xp
+                fp2_conj(h[j], temp);
+                fp2mul751_mont(temp, g, g);
+            } else {
+                fp2mul751_mont(M, h[j], temp);
+                fp2add751(temp, d, g);
+                fp2_conj(Y, temp);
+                fp2mul751_mont(temp, g, g);
+            }
+            fp2sqr751_mont(n[j], temp);
+            fp2mul751_mont(temp, n[j], n[j]);
+            fp2mul751_mont(g, n[j], n[j]);
+        }
+        fp2copy751(Xp, X);
+        fp2copy751(Yp, Y);
+        fp2copy751(Zp, Z);
+        fp2copy751(Tp, T);        
+    }
+    // final exponentiation:
+    mont_n_way_inv(n, t, h);
+    for (int j = 0; j < t; j++) {
+        fp2correction751(Qj[j]->Z);
+        if (fp2compare751(Qj[j]->Z, zero) == 0)
+            fp2copy751(one, n[j]);
+        else {
+            final_exponentiation_3_torsion_fast(n[j], h[j], n[j], CurveIsogeny);
+        }
+    }    
+}
+
+
+void Tate_4_pairings_3_torsion(const point_full_proj_t P, const point_full_proj_t Q, const point_full_proj_t R1, const point_full_proj_t R2, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny)
+{ // The tripling only 3-torsion Tate pairing of order 3^eB, consisting of the tripling only Miller loop and the final exponentiation. 
+  // Computes 4 pairings at once: e(P, S1), e(P, S2), e(Q, S1), e(Q,S2).
+    point_full_proj_t Qj[2], PW, QW, QjW[2];
+    f2elm_t a, b;
+    int t = 2;  
+    
+    Monty2Weier(A, a, b, CurveIsogeny);
+    
+    fp2copy751(R1->X, Qj[0]->X);
+    fp2copy751(R1->Y, Qj[0]->Y);
+    fp2copy751(R1->Z, Qj[0]->Z);
+    fp2copy751(R2->X, Qj[1]->X);
+    fp2copy751(R2->Y, Qj[1]->Y);
+    fp2copy751(R2->Z, Qj[1]->Z);
+    
+    PointMonty2Weier(P, PW, A, CurveIsogeny);
+    PointMonty2Weier(Q, QW, A, CurveIsogeny);
+    PointMonty2Weier(Qj[0], QjW[0], A, CurveIsogeny);
+    PointMonty2Weier(Qj[1], QjW[1], A, CurveIsogeny);    
+    
+    Tate_pairings_3_torsion_fast(PW, QjW, a, t, n, CurveIsogeny);
+    Tate_pairings_3_torsion_fast(QW, QjW, a, t, n + 2, CurveIsogeny);
 }
 
 
@@ -1373,23 +2055,23 @@ void phn5(f2elm_t q, const f2elm_t* LUT, const f2elm_t* LUT_1, const felm_t one,
     uint64_t i, j;
 
     *alpha_k = 0;
-	fp2copy751(q, u); 
-	for (i = 0; i < 4; i++) {
-		fp2copy751(u, v);
-		sqr_Fp2_cycl(v, one);
-		for (j = 0; j < (5 * (3 - i)); j++) { 
-			sqr_Fp2_cycl(v, one);
-		}
-		phn1(v, LUT, 5, one, &alpha_i);      // u order 2^5
-		*alpha_k += (alpha_i << (5 * i));
-		exp6_Fp2_cycl(LUT_1[i], alpha_i, one, tmp);       
-		fp2mul751_mont(u, tmp, u);
-	}
-	fp2correction751(u);
+    fp2copy751(q, u); 
+    for (i = 0; i < 4; i++) {
+        fp2copy751(u, v);
+        sqr_Fp2_cycl(v, one);
+        for (j = 0; j < (5 * (3 - i)); j++) { 
+                sqr_Fp2_cycl(v, one);
+        }
+        phn1(v, LUT, 5, one, &alpha_i);      // u order 2^5
+        *alpha_k += (alpha_i << (5 * i));
+        exp6_Fp2_cycl(LUT_1[i], alpha_i, one, tmp);       
+        fp2mul751_mont(u, tmp, u);
+    }
+    fp2correction751(u);
     // Do the last part
-	if (fpequal751_non_constant_time(u[0], one) == false || fpequal751_non_constant_time(u[1], zero) == false) { // q order 2
-		*alpha_k += ((uint64_t)1 << 20);
-	} 
+    if (fpequal751_non_constant_time(u[0], one) == false || fpequal751_non_constant_time(u[1], zero) == false) { // q order 2
+            *alpha_k += ((uint64_t)1 << 20);
+    } 
 }
 
 
@@ -1399,10 +2081,9 @@ void phn21(f2elm_t q, const f2elm_t* LUT, const f2elm_t* LUT_0, const f2elm_t* L
     uint64_t alpha_i;
     uint64_t i, j;
 
-
     alpha_k[0] = 0;
-	alpha_k[1] = 0;
-	fp2copy751(q, u);
+    alpha_k[1] = 0;
+    fp2copy751(q, u);
     for (i = 0; i < 3; i++) {
         fp2copy751(u, v);
         for (j = 0; j < 21*(3-i); j++) {          
@@ -1413,9 +2094,9 @@ void phn21(f2elm_t q, const f2elm_t* LUT, const f2elm_t* LUT_0, const f2elm_t* L
         exp21_Fp2_cycl(LUT_0[i], alpha_i, one, tmp); 
         fp2mul751_mont(u, tmp, u);
     }
-	phn5(u, LUT, LUT_1, one, &alpha_i);      // u order 2^21
-	alpha_k[0] += (alpha_i << 63);
-	alpha_k[1] = (alpha_i >> 1);
+    phn5(u, LUT, LUT_1, one, &alpha_i);      // u order 2^21
+    alpha_k[0] += (alpha_i << 63);
+    alpha_k[1] = (alpha_i >> 1);
 }
 
 
@@ -1425,7 +2106,7 @@ void phn84(f2elm_t r, const f2elm_t* t_ori, const f2elm_t* LUT, const f2elm_t* L
     uint64_t alpha_k[2], alpha_i, mask;
     uint64_t i, j, k;
 
-	for (i = 0; i < NWORDS64_ORDER; i++) alpha[i] = 0;
+    for (i = 0; i < NWORDS64_ORDER; i++) alpha[i] = 0;
     fp2copy751(r, t);
     for (k = 0; k < 4; k++) {
 		fp2copy751(t, q);
@@ -1443,7 +2124,7 @@ void phn84(f2elm_t r, const f2elm_t* t_ori, const f2elm_t* LUT, const f2elm_t* L
         exp84_Fp2_cycl(t_ori[k], alpha_k, one, tmp); 
         fp2mul751_mont(t, tmp, t); 
     }
-	alpha[5] = (alpha_k[1] >> 4);
+    alpha[5] = (alpha_k[1] >> 4);
     // Do the last part
     for (i = 0; i < 6; i++) {
         fp2copy751(t, u);
@@ -1460,53 +2141,52 @@ void phn84(f2elm_t r, const f2elm_t* t_ori, const f2elm_t* LUT, const f2elm_t* L
 
 void build_LUTs(const f2elm_t g, f2elm_t* t_ori, f2elm_t* LUT, f2elm_t* LUT_0, f2elm_t* LUT_1, f2elm_t* LUT_3, const felm_t one)
 { // Lookup table generation for 2-torsion PH in a group of order 2^372
-	f2elm_t tmp;
-	unsigned int i, j; 
+    f2elm_t tmp;
+    unsigned int i, j; 
 
-	fp2copy751(g, tmp);                                    // tmp = g
-	inv_Fp2_cycl(tmp);
-	fp2copy751(tmp, t_ori[0]);                             // t_ori[0] = g^(-1), order 2^372
-	for (i = 0; i < 3; i++) {
-		for (j = 0; j < 84; j++) sqr_Fp2_cycl(tmp, one);
-		fp2copy751(tmp, t_ori[i+1]);                       // order 2^288 & 2^204 & 2^120 
-	}
-	for (i = 0; i < 36; i++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, t_ori[4]);                             // t_ori[4], order 2^84
-	                                                       // t_ori done.
-	fp2copy751(tmp, LUT_0[0]);                             // LUT_0[0] = t_ori[4], order 2^84
-	for (i = 0; i < 2; i++) {
-		for (j = 0; j < 21; j++) sqr_Fp2_cycl(tmp, one);
-		fp2copy751(tmp, LUT_0[i+1]);                       // order 2^63 & 2^42 
-	}
-	for (j = 0; j < 6; j++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_3[0]);                             // LUT_3[0] = tmp, order 2^36
-	for (j = 0; j < 6; j++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_3[1]);                             // LUT_3[1] = tmp, order 2^30
-	for (j = 0; j < 6; j++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_3[2]);                             // LUT_3[2] = tmp, order 2^24
-	for (j = 0; j < 3; j++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_0[3]);                             // LUT_0[3] = tmp, order 2^21 
-	                                                       // LUT_0 done.
-	fp2copy751(tmp, LUT_1[0]);                             // LUT_1[0] = LUT_0[3], order 2^21
-	for (i = 0; i < 3; i++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_3[3]);                             // LUT_3[3] = tmp, order 2^18
-	for (i = 0; i < 2; i++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_1[1]);                             // LUT_1[1] = tmp, order 2^16
-	for (i = 0; i < 4; i++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_3[4]);                             // LUT_3[4] = tmp, order 2^12
-	sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_1[2]);                             // LUT_1[2] = tmp, order 2^11
-	for (i = 0; i < 5; i++) sqr_Fp2_cycl(tmp, one);
-	fp2copy751(tmp, LUT_1[3]);                             // LUT_1[3] = tmp, order 2^16 & 2^11 & 2^6    
-	fp2copy751(tmp, LUT_3[5]);                             // LUT_3[5] = tmp
-	                                                       // LUT_1, LUT_3 done
-	fp2copy751(tmp, LUT[0]);                               // LUT = LUT_3[5]
-	for (i = 0; i < 4; i++) {
-		fp2copy751(LUT[i], LUT[i+1]);
-		sqr_Fp2_cycl(LUT[i+1], one);                       // order 2^5 -- 2^1
-	}
+    fp2copy751(g, tmp);                                    // tmp = g
+    inv_Fp2_cycl(tmp);
+    fp2copy751(tmp, t_ori[0]);                             // t_ori[0] = g^(-1), order 2^372
+    for (i = 0; i < 3; i++) {
+        for (j = 0; j < 84; j++) sqr_Fp2_cycl(tmp, one);
+        fp2copy751(tmp, t_ori[i+1]);                       // order 2^288 & 2^204 & 2^120 
+    }
+    for (i = 0; i < 36; i++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, t_ori[4]);                             // t_ori[4], order 2^84
+                                                           // t_ori done.
+    fp2copy751(tmp, LUT_0[0]);                             // LUT_0[0] = t_ori[4], order 2^84
+    for (i = 0; i < 2; i++) {
+        for (j = 0; j < 21; j++) sqr_Fp2_cycl(tmp, one);
+        fp2copy751(tmp, LUT_0[i+1]);                       // order 2^63 & 2^42 
+    }
+    for (j = 0; j < 6; j++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_3[0]);                             // LUT_3[0] = tmp, order 2^36
+    for (j = 0; j < 6; j++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_3[1]);                             // LUT_3[1] = tmp, order 2^30
+    for (j = 0; j < 6; j++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_3[2]);                             // LUT_3[2] = tmp, order 2^24
+    for (j = 0; j < 3; j++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_0[3]);                             // LUT_0[3] = tmp, order 2^21 
+                                                           // LUT_0 done.
+    fp2copy751(tmp, LUT_1[0]);                             // LUT_1[0] = LUT_0[3], order 2^21
+    for (i = 0; i < 3; i++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_3[3]);                             // LUT_3[3] = tmp, order 2^18
+    for (i = 0; i < 2; i++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_1[1]);                             // LUT_1[1] = tmp, order 2^16
+    for (i = 0; i < 4; i++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_3[4]);                             // LUT_3[4] = tmp, order 2^12
+    sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_1[2]);                             // LUT_1[2] = tmp, order 2^11
+    for (i = 0; i < 5; i++) sqr_Fp2_cycl(tmp, one);
+    fp2copy751(tmp, LUT_1[3]);                             // LUT_1[3] = tmp, order 2^16 & 2^11 & 2^6    
+    fp2copy751(tmp, LUT_3[5]);                             // LUT_3[5] = tmp
+                                                           // LUT_1, LUT_3 done
+    fp2copy751(tmp, LUT[0]);                               // LUT = LUT_3[5]
+    for (i = 0; i < 4; i++) {
+        fp2copy751(LUT[i], LUT[i+1]);
+        sqr_Fp2_cycl(LUT[i+1], one);                       // order 2^5 -- 2^1
+    }
 }
-
 
 void ph2(const point_t phiP, const point_t phiQ, const point_t PS, const point_t QS, const f2elm_t A, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, PCurveIsogenyStruct CurveIsogeny)
 { // Pohlig-Hellman function. 
@@ -1518,19 +2198,54 @@ void ph2(const point_t phiP, const point_t phiQ, const point_t PS, const point_t
     
     fpcopy751(CurveIsogeny->Montgomery_one, one);
 	
-	// Compute the pairings.
+    // Compute the pairings.
     Tate_pairings_2_torsion(QS, PS, phiP, phiQ, A, n, CurveIsogeny);
 
-	// Build the lookup tables from element n[0] of order 2^372.
-	build_LUTs(n[0], t_ori, LUT, LUT_0, LUT_1, LUT_3, one);
+    // Build the lookup tables from element n[0] of order 2^372.
+    build_LUTs(n[0], t_ori, LUT, LUT_0, LUT_1, LUT_3, one);
 
     // Finish computation
     phn84(n[1], t_ori, LUT, LUT_0, LUT_1, LUT_3, one, a0);
     phn84(n[3], t_ori, LUT, LUT_0, LUT_1, LUT_3, one, b0);
-	mp_sub(CurveIsogeny->Aorder, (digit_t*)b0, (digit_t*)b0, NWORDS_ORDER);
+    mp_sub(CurveIsogeny->Aorder, (digit_t*)b0, (digit_t*)b0, NWORDS_ORDER);
     phn84(n[2], t_ori, LUT, LUT_0, LUT_1, LUT_3, one, a1);
     phn84(n[4], t_ori, LUT, LUT_0, LUT_1, LUT_3, one, b1);
-	mp_sub(CurveIsogeny->Aorder, (digit_t*)b1, (digit_t*)b1, NWORDS_ORDER);
+    mp_sub(CurveIsogeny->Aorder, (digit_t*)b1, (digit_t*)b1, NWORDS_ORDER);
+}
+
+
+void ph2_fast(const point_full_proj_t phiP, const point_full_proj_t phiQ, const point_t PS, const point_t QS, const f2elm_t A, uint64_t* c0, uint64_t* d0, uint64_t* c1, uint64_t* d1, PCurveIsogenyStruct CurveIsogeny)
+{ // Pohlig-Hellman function. 
+  // This function computes the four pairings e(phiP,PS), e(phiP,QS), e(phiQ,PS), e(phiQ,QS),
+  // computes the lookup tables for the Pohlig-Hellman functions,
+  // and then computes the discrete logarithms of the pairing values to the base of the precomputed pairing value.                                                                    
+    f2elm_t n[4];
+    int D[372];
+    
+    // Compute the four pairings.
+    Tate_4_pairings_2_torsion(phiP, phiQ, PS, QS, A, n, CurveIsogeny);
+
+    for (int i = 0; i < 372; i++)
+        D[i] = -1;    
+    Traverse(n[0], 0, 0, 372, ph2_path, ph2_T, D, 372, 2, CurveIsogeny);
+    from_base(D,d0,372,2);   
+    
+    for (int i = 0; i < 372; i++)
+        D[i] = -1;    
+    Traverse(n[2], 0, 0, 372, ph2_path, ph2_T, D, 372, 2, CurveIsogeny);
+    from_base(D,c0,372,2);    
+    mp_sub(CurveIsogeny->Aorder, (digit_t*)c0, (digit_t*)c0, NWORDS_ORDER);
+    
+    for (int i = 0; i < 372; i++)
+        D[i] = -1;    
+    Traverse(n[1], 0, 0, 372, ph2_path, ph2_T, D, 372, 2, CurveIsogeny);
+    from_base(D,d1,372,2);
+    
+    for (int i = 0; i < 372; i++)
+        D[i] = -1;    
+    Traverse(n[3], 0, 0, 372, ph2_path, ph2_T, D, 372, 2, CurveIsogeny);
+    from_base(D,c1,372,2);     
+    mp_sub(CurveIsogeny->Aorder, (digit_t*)c1, (digit_t*)c1, NWORDS_ORDER); 
 }
 
 
@@ -1594,7 +2309,7 @@ void compress_2_torsion(const unsigned char* PublicKeyA, unsigned char* Compress
     point_t phiP, phiQ;
     publickey_t PK;
     digit_t* comp = (digit_t*)CompressedPKA;
-	digit_t inv[NWORDS_ORDER];
+    digit_t inv[NWORDS_ORDER];
     f2elm_t A, vec[4], Zinv[4];
     digit_t tmp[2*NWORDS_ORDER];
 
@@ -1623,27 +2338,27 @@ void compress_2_torsion(const unsigned char* PublicKeyA, unsigned char* Compress
 
     if ((a0[0] & 1) == 1) {  // Storing [b1*a0inv, a1*a0inv, b0*a0inv] and setting bit384 to 0
         inv_mod_orderA((digit_t*)a0, inv);        
-		multiply((digit_t*)b0, inv, tmp, NWORDS_ORDER);
-		copy_words(tmp, &comp[0], NWORDS_ORDER);
-		comp[NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;       // Hardcoded value
-		multiply((digit_t*)a1, inv, tmp, NWORDS_ORDER);
-		copy_words(tmp, &comp[NWORDS_ORDER], NWORDS_ORDER);
-		comp[2*NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;
-		multiply((digit_t*)b1, inv, tmp, NWORDS_ORDER);
-		copy_words(tmp, &comp[2 * NWORDS_ORDER], NWORDS_ORDER);
-		comp[3*NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;
+        multiply((digit_t*)b0, inv, tmp, NWORDS_ORDER);
+        copy_words(tmp, &comp[0], NWORDS_ORDER);
+        comp[NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;       // Hardcoded value
+        multiply((digit_t*)a1, inv, tmp, NWORDS_ORDER);
+        copy_words(tmp, &comp[NWORDS_ORDER], NWORDS_ORDER);
+        comp[2*NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;
+        multiply((digit_t*)b1, inv, tmp, NWORDS_ORDER);
+        copy_words(tmp, &comp[2 * NWORDS_ORDER], NWORDS_ORDER);
+        comp[3*NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;
     } else {  // Storing [b1*b0inv, a1*b0inv, a0*b0inv] and setting bit384 to 1
-		inv_mod_orderA((digit_t*)b0, inv);
-		multiply((digit_t*)a0, inv, tmp, NWORDS_ORDER);
-		copy_words(tmp, &comp[0], NWORDS_ORDER);
-		comp[NWORDS_ORDER - 1] &= (digit_t)(-1) >> 12;     // Hardcoded value
-		multiply((digit_t*)a1, inv, tmp, NWORDS_ORDER);
-		copy_words(tmp, &comp[NWORDS_ORDER], NWORDS_ORDER);
-		comp[2*NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;
-		multiply((digit_t*)b1, inv, tmp, NWORDS_ORDER);
-		copy_words(tmp, &comp[2 * NWORDS_ORDER], NWORDS_ORDER);
-		comp[3*NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;
-		comp[3*NWORDS_ORDER-1] |= (digit_t)1 << (sizeof(digit_t)*8 - 1);
+        inv_mod_orderA((digit_t*)b0, inv);
+        multiply((digit_t*)a0, inv, tmp, NWORDS_ORDER);
+        copy_words(tmp, &comp[0], NWORDS_ORDER);
+        comp[NWORDS_ORDER - 1] &= (digit_t)(-1) >> 12;     // Hardcoded value
+        multiply((digit_t*)a1, inv, tmp, NWORDS_ORDER);
+        copy_words(tmp, &comp[NWORDS_ORDER], NWORDS_ORDER);
+        comp[2*NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;
+        multiply((digit_t*)b1, inv, tmp, NWORDS_ORDER);
+        copy_words(tmp, &comp[2 * NWORDS_ORDER], NWORDS_ORDER);
+        comp[3*NWORDS_ORDER-1] &= (digit_t)(-1) >> 12;
+        comp[3*NWORDS_ORDER-1] |= (digit_t)1 << (sizeof(digit_t)*8 - 1);
     }
     
     from_fp2mont(A, (felm_t*)&comp[3*NWORDS_ORDER]);  // Converting back from Montgomery representation
@@ -1655,8 +2370,8 @@ void phn1_3(const f2elm_t q, const f2elm_t* LUT, const uint64_t a, const felm_t 
     f2elm_t u, v, tmp;
     felm_t zero = {0};
     uint64_t l, h;
-	// Hardcoded powers of 3, 3^0 = 1, 3^1 = 3, 3^2 = 9
-	uint64_t pow3[3] = {0x0000000000000001, 0x0000000000000003, 0x0000000000000009}; 
+    // Hardcoded powers of 3, 3^0 = 1, 3^1 = 3, 3^2 = 9
+    uint64_t pow3[3] = {0x0000000000000001, 0x0000000000000003, 0x0000000000000009}; 
 
     fp2copy751(q, u);                     // u = q
     *alpha_i = 0;
@@ -1665,24 +2380,24 @@ void phn1_3(const f2elm_t q, const f2elm_t* LUT, const uint64_t a, const felm_t 
         for (h = 1; h < (a-l); h++) { 
             cube_Fp2_cycl(v, one); 
         }
-		fp2correction751(v);
+        fp2correction751(v);
         if (fpequal751_non_constant_time(v[0], LUT[3][0]) == true && fpequal751_non_constant_time(v[1], LUT[3][1]) == true) {
             *alpha_i += pow3[l];
             fp2copy751(LUT[3-a+l], tmp);  // tmp = LUT[3-a+l];
             fp2mul751_mont(u, tmp, u); 
         } else if (fpequal751_non_constant_time(v[0], one) == false || fpequal751_non_constant_time(v[1], zero) == false) {
-			*alpha_i += pow3[l] << 1;
+            *alpha_i += pow3[l] << 1;
             fp2copy751(LUT[3-a+l], tmp);  // tmp = LUT[3-a+l];
-			sqr_Fp2_cycl(tmp, one);
+            sqr_Fp2_cycl(tmp, one);
             fp2mul751_mont(u, tmp, u); 
         }
     }
-	fp2correction751(u);
-	if (fpequal751_non_constant_time(u[0], LUT[3][0]) == true && fpequal751_non_constant_time(u[1], LUT[3][1]) == true) {
-		*alpha_i += pow3[a-1];
-	} else if (fpequal751_non_constant_time(u[0], one) == false || fpequal751_non_constant_time(u[1], zero) == false) {
-		*alpha_i += pow3[a-1] << 1;
-	}
+    fp2correction751(u);
+    if (fpequal751_non_constant_time(u[0], LUT[3][0]) == true && fpequal751_non_constant_time(u[1], LUT[3][1]) == true) {
+        *alpha_i += pow3[a-1];
+    } else if (fpequal751_non_constant_time(u[0], one) == false || fpequal751_non_constant_time(u[1], zero) == false) {
+        *alpha_i += pow3[a-1] << 1;
+    }
 }
 
 
@@ -1691,13 +2406,13 @@ void phn3(f2elm_t q, const f2elm_t* LUT, const f2elm_t* LUT_1, const felm_t one,
     f2elm_t u, v, tmp;
     uint64_t alpha_i;
     uint64_t i, j;
-	// Powers of 3: 3^0 = 1, 3^3 = 27, 3^6 = 729, 3^9, 3^12
-	uint64_t pow3[5] = {0x0000000000000001, 0x000000000000001B,
-	                    0x00000000000002D9, 0x0000000000004CE3,
-	                    0x0000000000081BF1 };
+    // Powers of 3: 3^0 = 1, 3^3 = 27, 3^6 = 729, 3^9, 3^12
+    uint64_t pow3[5] = {0x0000000000000001, 0x000000000000001B,
+                        0x00000000000002D9, 0x0000000000004CE3,
+                        0x0000000000081BF1 };
 
     *alpha_k = 0;
-	fp2copy751(q, u);
+    fp2copy751(q, u);
     for (i = 0; i < 4; i++) {
         fp2copy751(u, v);
         for (j = 0; j < 3*(4-i); j++) {       
@@ -1708,22 +2423,22 @@ void phn3(f2elm_t q, const f2elm_t* LUT, const f2elm_t* LUT_1, const felm_t one,
         exp6_Fp2_cycl(LUT_1[i], alpha_i, one, tmp);   
         fp2mul751_mont(u, tmp, u); 
     }
-	phn1_3(u, LUT, 3, one, &alpha_i);      // u order 3^3
-	*alpha_k += alpha_i * pow3[4];
+    phn1_3(u, LUT, 3, one, &alpha_i);      // u order 3^3
+    *alpha_k += alpha_i * pow3[4];
 }
 
 
 void phn15_1(f2elm_t q, const f2elm_t* LUT, const f2elm_t* LUT_0, const f2elm_t* LUT_1, const felm_t one, uint64_t* alpha_k)
 {
     f2elm_t u, v, tmp;
-	uint64_t alpha_i, alpha_n[2], alpha_tmp[4];   // alpha_tmp[4] is overkill, only taking 4 since it is the result of a mp_mul with 2-word inputs.
+    uint64_t alpha_i, alpha_n[2], alpha_tmp[4];   // alpha_tmp[4] is overkill, only taking 4 since it is the result of a mp_mul with 2-word inputs.
     uint64_t i, j;
-	// Powers of 3: 3^0 = 1, 3^15, 3^30
-	uint64_t pow3_15[3] = { 0x0000000000000001, 0x0000000000DAF26B, 0x0000BB41C3CA78B9 };
-	// Powers of 3: 3^0 = 1, 3^3 = 27, 3^6
-	uint64_t pow3_3[4] = { 0x0000000000000001, 0x000000000000001B, 0x00000000000002D9, 0x0000000000004CE3 };
-	// Powers of 3: 3^45 split up into two words.
-	uint64_t pow3_45[2] = { 0x275329FD09495753,  0x00000000000000A0 };
+    // Powers of 3: 3^0 = 1, 3^15, 3^30
+    uint64_t pow3_15[3] = { 0x0000000000000001, 0x0000000000DAF26B, 0x0000BB41C3CA78B9 };
+    // Powers of 3: 3^0 = 1, 3^3 = 27, 3^6
+    uint64_t pow3_3[4] = { 0x0000000000000001, 0x000000000000001B, 0x00000000000002D9, 0x0000000000004CE3 };
+    // Powers of 3: 3^45 split up into two words.
+    uint64_t pow3_45[2] = { 0x275329FD09495753,  0x00000000000000A0 };
 
     alpha_k[0] = 0;
 	alpha_k[1] = 0;
@@ -1773,9 +2488,9 @@ void phn15_1(f2elm_t q, const f2elm_t* LUT, const f2elm_t* LUT_0, const f2elm_t*
     }
         
     phn1_3(u, LUT, 2, one, &alpha_i);
-	alpha_n[0] += alpha_i * pow3_3[3];
-	multiply((digit_t*)alpha_n, (digit_t*)pow3_45, (digit_t*)alpha_tmp, 2*64/RADIX);  // Can be optimized because alpha_n is only single precision and pow3_45 is only slightly larger than 64 bits.
-	mp_add((digit_t*)alpha_k, (digit_t*)alpha_tmp, (digit_t*)alpha_k, 2*64/RADIX);
+    alpha_n[0] += alpha_i * pow3_3[3];
+    multiply((digit_t*)alpha_n, (digit_t*)pow3_45, (digit_t*)alpha_tmp, 2*64/RADIX);  // Can be optimized because alpha_n is only single precision and pow3_45 is only slightly larger than 64 bits.
+    mp_add((digit_t*)alpha_k, (digit_t*)alpha_tmp, (digit_t*)alpha_k, 2*64/RADIX);
 }
 
 
@@ -1838,15 +2553,15 @@ void phn61(f2elm_t r, f2elm_t* t_ori, const f2elm_t* LUT, const f2elm_t* LUT_0, 
     uint64_t alpha_k[5] = {0}, alpha_tmp[10] = {0};
     uint64_t i, k;
 
-	uint64_t pow3_61[13] = { 0x0000000000000001, 0x0000000000000000,     // 3^0 = 1
-		                     0x6CC8F7FBB8A5E113, 0x000000019AEB6ECC,     // 3^61
-		                     0x6878E44938606769, 0xD73A1059B8013933,     // 3^(2*61)
-	                         0x9396F76B67B7C403, 0x0000000000000002,
-		                     0x25A79F6508B7F5CB, 0x05515FED4D025D6F,     // 3^(3*61)
-		                     0x37E2AD6FF9936EA9, 0xB69B5308880B15B6, 
-		                     0x0000000422BE6150 };
+    uint64_t pow3_61[13] = { 0x0000000000000001, 0x0000000000000000,     // 3^0 = 1
+                             0x6CC8F7FBB8A5E113, 0x000000019AEB6ECC,     // 3^61
+                             0x6878E44938606769, 0xD73A1059B8013933,     // 3^(2*61)
+                             0x9396F76B67B7C403, 0x0000000000000002,
+                             0x25A79F6508B7F5CB, 0x05515FED4D025D6F,     // 3^(3*61)
+                             0x37E2AD6FF9936EA9, 0xB69B5308880B15B6, 
+                             0x0000000422BE6150 };
 
-	for (i = 0; i < NWORDS64_ORDER; i++) alpha[i] = 0;
+    for (i = 0; i < NWORDS64_ORDER; i++) alpha[i] = 0;
 
     fp2copy751(r, u);
     for (k = 0; k < 2; k++) {
@@ -1858,25 +2573,25 @@ void phn61(f2elm_t r, f2elm_t* t_ori, const f2elm_t* LUT, const f2elm_t* LUT_0, 
             cube_Fp2_cycl(v, one);
         }
         phn15(v, LUT, LUT_0, LUT_1, one, alpha_k);  // q order 3^61
-		multiply((digit_t*)alpha_k, (digit_t*)&pow3_61[2*k], (digit_t*)alpha_tmp, 2*64/RADIX);    
-		mp_add((digit_t*)alpha, (digit_t*)alpha_tmp, (digit_t*)alpha, 4*64/RADIX);
+        multiply((digit_t*)alpha_k, (digit_t*)&pow3_61[2*k], (digit_t*)alpha_tmp, 2*64/RADIX);    
+        mp_add((digit_t*)alpha, (digit_t*)alpha_tmp, (digit_t*)alpha, 4*64/RADIX);
 
         exp_Fp2_cycl(t_ori[k], alpha_k, one, tmp, 97);                            
         fp2mul751_mont(u, tmp, u); 
     }
-	fp2copy751(u, v);
-	for (i = 0; i < 56; i++) {
-		cube_Fp2_cycl(v, one);
-	}
-	phn15(v, LUT, LUT_0, LUT_1, one, alpha_k);  // q order 3^61
-	multiply((digit_t*)alpha_k, (digit_t*)&pow3_61[4], (digit_t*)alpha_tmp, 4*64/RADIX);    
-	mp_add((digit_t*)alpha, (digit_t*)alpha_tmp, (digit_t*)alpha, NWORDS_ORDER);
+    fp2copy751(u, v);
+    for (i = 0; i < 56; i++) {
+            cube_Fp2_cycl(v, one);
+    }
+    phn15(v, LUT, LUT_0, LUT_1, one, alpha_k);  // q order 3^61
+    multiply((digit_t*)alpha_k, (digit_t*)&pow3_61[4], (digit_t*)alpha_tmp, 4*64/RADIX);    
+    mp_add((digit_t*)alpha, (digit_t*)alpha_tmp, (digit_t*)alpha, NWORDS_ORDER);
 
-	exp_Fp2_cycl(t_ori[2], alpha_k, one, tmp, 97);
-	fp2mul751_mont(u, tmp, u);
+    exp_Fp2_cycl(t_ori[2], alpha_k, one, tmp, 97);
+    fp2mul751_mont(u, tmp, u);
     phn15_1(u, LUT, LUT_0, LUT_1, one, alpha_k);  // q order 3^56
-	multiply((digit_t*)alpha_k, (digit_t*)&pow3_61[8], (digit_t*)alpha_tmp, 5*64/RADIX);    
-	mp_add((digit_t*)alpha, (digit_t*)alpha_tmp, (digit_t*)alpha, NWORDS_ORDER);    
+    multiply((digit_t*)alpha_k, (digit_t*)&pow3_61[8], (digit_t*)alpha_tmp, 5*64/RADIX);    
+    mp_add((digit_t*)alpha, (digit_t*)alpha_tmp, (digit_t*)alpha, NWORDS_ORDER);    
 }
 
 
@@ -1900,7 +2615,7 @@ void build_LUTs_3(f2elm_t g, f2elm_t* t_ori, f2elm_t* LUT, f2elm_t* LUT_0, f2elm
 	fp2copy751(tmp, t_ori[4]);                              // t_ori done.
 
 	for (i = 0; i < 10; i++) cube_Fp2_cycl(tmp, one);
-    fp2copy751(tmp, LUT_0[1]);
+        fp2copy751(tmp, LUT_0[1]);
 	for (i = 1; i < 3; i++) {
 		for (j = 0; j < 15; j++) cube_Fp2_cycl(tmp, one);
         fp2copy751(tmp, LUT_0[i+1]);
@@ -1933,19 +2648,49 @@ void ph3(point_t phiP, point_t phiQ, point_t PS, point_t QS, f2elm_t A, uint64_t
 
     fpcopy751(CurveIsogeny->Montgomery_one, one);
 
-	// Compute the pairings
+    // Compute the pairings
     Tate_pairings_3_torsion(QS, PS, phiP, phiQ, A, n, CurveIsogeny);
 
-	// Build the look-up tables
-	build_LUTs_3(n[0], t_ori, LUT, LUT_0, LUT_1, one);
+    // Build the look-up tables
+    build_LUTs_3(n[0], t_ori, LUT, LUT_0, LUT_1, one);
 
     // Finish computation
     phn61(n[1], t_ori, LUT, LUT_0, LUT_1, one, a0);
     phn61(n[3], t_ori, LUT, LUT_0, LUT_1, one, b0);
-	mp_sub(CurveIsogeny->Border, (digit_t*)b0, (digit_t*)b0, NWORDS_ORDER);
+    mp_sub(CurveIsogeny->Border, (digit_t*)b0, (digit_t*)b0, NWORDS_ORDER);
     phn61(n[2], t_ori, LUT, LUT_0, LUT_1, one, a1);
     phn61(n[4], t_ori, LUT, LUT_0, LUT_1, one, b1);
-	mp_sub(CurveIsogeny->Border, (digit_t*)b1, (digit_t*)b1, NWORDS_ORDER);
+    mp_sub(CurveIsogeny->Border, (digit_t*)b1, (digit_t*)b1, NWORDS_ORDER);
+}
+
+
+void ph3_fast(point_full_proj_t phiP, point_full_proj_t phiQ, point_full_proj_t PS, point_full_proj_t QS, f2elm_t A, uint64_t* c0, uint64_t* d0, uint64_t* c1, uint64_t* d1, PCurveIsogenyStruct CurveIsogeny)
+{ // 3^eB-torsion Pohlig-Hellman function using optimal strategy
+  // This function computes the four pairings e(phiP,PS), e(phiP,QS), e(phiQ,PS), e(phiQ,QS)
+  // and then computes the discrete logarithms of the pairing values to the base of the precomputed pairing value e(phiP,phiQ)=e(P,Q)^(2^eA).
+    f2elm_t n[4];
+    int D[239];
+    
+    // Compute the four pairings
+    Tate_4_pairings_3_torsion(phiP, phiQ, PS, QS, A, n, CurveIsogeny);
+
+    for (int i = 0; i < CurveIsogeny->eB; i++)  D[i] = -1;    
+    Traverse(n[0], 0, 0, CurveIsogeny->eB, ph3_path, ph3_T, D, CurveIsogeny->eB, 3, CurveIsogeny);
+    from_base(D, d0, CurveIsogeny->eB, 3);   
+    
+    for (int i = 0; i < CurveIsogeny->eB; i++)  D[i] = -1;    
+    Traverse(n[2], 0, 0, CurveIsogeny->eB, ph3_path, ph3_T, D, CurveIsogeny->eB, 3, CurveIsogeny);
+    from_base(D, c0, CurveIsogeny->eB, 3);    
+    mp_sub(CurveIsogeny->Border, (digit_t*)c0, (digit_t*)c0, NWORDS_ORDER);
+    
+    for (int i = 0; i < CurveIsogeny->eB; i++)  D[i] = -1;    
+    Traverse(n[1], 0, 0, CurveIsogeny->eB, ph3_path, ph3_T, D, CurveIsogeny->eB, 3, CurveIsogeny);
+    from_base(D, d1, CurveIsogeny->eB, 3);
+    
+    for (int i = 0; i < CurveIsogeny->eB; i++)  D[i] = -1;    
+    Traverse(n[3], 0, 0, CurveIsogeny->eB, ph3_path, ph3_T, D, CurveIsogeny->eB, 3, CurveIsogeny);
+    from_base(D, c1, CurveIsogeny->eB, 3);     
+    mp_sub(CurveIsogeny->Border, (digit_t*)c1, (digit_t*)c1, NWORDS_ORDER);    
 }
 
 
@@ -1971,7 +2716,7 @@ void compress_3_torsion(const unsigned char* pPublicKeyB, unsigned char* Compres
     point_t phiP, phiQ;
     publickey_t PK;
     digit_t* comp = (digit_t*)CompressedPKB;
-	digit_t inv[NWORDS_ORDER];
+    digit_t inv[NWORDS_ORDER];
     f2elm_t A, vec[4], Zinv[4];
     uint64_t Montgomery_Rprime[NWORDS64_ORDER] = {0x1A55482318541298, 0x070A6370DFA12A03, 0xCB1658E0E3823A40, 0xB3B7384EB5DEF3F9, 0xCBCA952F7006EA33, 0x00569EF8EC94864C}; // Value (2^384)^2 mod 3^239
     uint64_t Montgomery_rprime[NWORDS64_ORDER] = {0x48062A91D3AB563D, 0x6CE572751303C2F5, 0x5D1319F3F160EC9D, 0xE35554E8C2D5623A, 0xCA29300232BC79A5, 0x8AAD843D646D78C5}; // Value -(3^239)^-1 mod 2^384
@@ -2039,50 +2784,49 @@ void ADD(const point_full_proj_t P, const f2elm_t QX, const f2elm_t QY, const f2
   // Output: projective Montgomery point R <- P+Q = (XQP:YQP:ZQP). 
     f2elm_t t0, t1, t2, t3, t4, t5, t6, t7;
 
-	fp2mul751_mont(QX, P->Z, t0);            // t0 = x2*Z1    
-	fp2mul751_mont(P->X, QZ, t1);            // t1 = X1*z2    
-	fp2add751(t0, t1, t2);                   // t2 = t0 + t1
-	fp2sub751(t1, t0, t3);                   // t3 = t1 - t0
-	fp2mul751_mont(QX, P->X, t0);            // t0 = x2*X1    
-	fp2mul751_mont(P->Z, QZ, t1);            // t1 = Z1*z2
-	fp2add751(t0, t1, t4);                   // t4 = t0 + t1
-	fp2mul751_mont(t0, A, t0);               // t0 = t0*A
-	fp2mul751_mont(QY, P->Y, t5);            // t5 = y2*Y1
-	fp2sub751(t0, t5, t0);                   // t0 = t0 - t5
-	fp2mul751_mont(t0, t1, t0);              // t0 = t0*t1
-	fp2add751(t0, t0, t0);                   // t0 = t0 + t0
-	fp2mul751_mont(t2, t4, t5);              // t5 = t2*t4
-	fp2add751(t5, t0, t5);                   // t5 = t5 + t0
-	fp2sqr751_mont(P->X, t0);                // t0 = X1 ^ 2
-	fp2sqr751_mont(P->Z, t6);                // t6 = Z1 ^ 2
-	fp2add751(t0, t6, t0);                   // t0 = t0 + t6
-	fp2add751(t1, t1, t1);                   // t1 = t1 + t1
-	fp2mul751_mont(QY, P->X, t7);            // t7 = y2*X1
-	fp2mul751_mont(QX, P->Y, t6);            // t6 = x2*Y1
-	fp2sub751(t7, t6, t7);                   // t7 = t7 - t6
-	fp2mul751_mont(t1, t7, t1);              // t1 = t1*t7
-	fp2mul751_mont(A, t2, t7);               // t7 = A*t2
-	fp2add751(t7, t4, t4);                   // t4 = t4 + t7
-	fp2mul751_mont(t1, t4, t4);              // t4 = t1*t4
-	fp2mul751_mont(QY, QZ, t1);              // t1 = y2*z2
-	fp2mul751_mont(t0, t1, t0);              // t0 = t0*t1
-	fp2sqr751_mont(QZ, t1);                  // t1 = z2 ^ 2
-	fp2sqr751_mont(QX, t6);                  // t6 = x2 ^ 2
-	fp2add751(t1, t6, t1);                   // t1 = t1 + t6
-	fp2mul751_mont(P->Z, P->Y, t6);          // t6 = Z1*Y1
-	fp2mul751_mont(t1, t6, t1);              // t1 = t1*t6
-	fp2sub751(t0, t1, t0);                   // t0 = t0 - t1
-	fp2mul751_mont(t2, t0, t0);              // t0 = t2*t0
-	fp2mul751_mont(t5, t3, R->X);            // X3 = t5*t3
-	fp2add751(t4, t0, R->Y);                 // Y3 = t4 + t0
-	fp2sqr751_mont(t3, t0);                  // t0 = t3 ^ 2
-	fp2mul751_mont(t3, t0, R->Z);            // Z3 = t3*t0
-
+    fp2mul751_mont(QX, P->Z, t0);            // t0 = x2*Z1    
+    fp2mul751_mont(P->X, QZ, t1);            // t1 = X1*z2    
+    fp2add751(t0, t1, t2);                   // t2 = t0 + t1
+    fp2sub751(t1, t0, t3);                   // t3 = t1 - t0
+    fp2mul751_mont(QX, P->X, t0);            // t0 = x2*X1    
+    fp2mul751_mont(P->Z, QZ, t1);            // t1 = Z1*z2
+    fp2add751(t0, t1, t4);                   // t4 = t0 + t1
+    fp2mul751_mont(t0, A, t0);               // t0 = t0*A
+    fp2mul751_mont(QY, P->Y, t5);            // t5 = y2*Y1
+    fp2sub751(t0, t5, t0);                   // t0 = t0 - t5
+    fp2mul751_mont(t0, t1, t0);              // t0 = t0*t1
+    fp2add751(t0, t0, t0);                   // t0 = t0 + t0
+    fp2mul751_mont(t2, t4, t5);              // t5 = t2*t4
+    fp2add751(t5, t0, t5);                   // t5 = t5 + t0
+    fp2sqr751_mont(P->X, t0);                // t0 = X1 ^ 2
+    fp2sqr751_mont(P->Z, t6);                // t6 = Z1 ^ 2
+    fp2add751(t0, t6, t0);                   // t0 = t0 + t6
+    fp2add751(t1, t1, t1);                   // t1 = t1 + t1
+    fp2mul751_mont(QY, P->X, t7);            // t7 = y2*X1
+    fp2mul751_mont(QX, P->Y, t6);            // t6 = x2*Y1
+    fp2sub751(t7, t6, t7);                   // t7 = t7 - t6
+    fp2mul751_mont(t1, t7, t1);              // t1 = t1*t7
+    fp2mul751_mont(A, t2, t7);               // t7 = A*t2
+    fp2add751(t7, t4, t4);                   // t4 = t4 + t7
+    fp2mul751_mont(t1, t4, t4);              // t4 = t1*t4
+    fp2mul751_mont(QY, QZ, t1);              // t1 = y2*z2
+    fp2mul751_mont(t0, t1, t0);              // t0 = t0*t1
+    fp2sqr751_mont(QZ, t1);                  // t1 = z2 ^ 2
+    fp2sqr751_mont(QX, t6);                  // t6 = x2 ^ 2
+    fp2add751(t1, t6, t1);                   // t1 = t1 + t6
+    fp2mul751_mont(P->Z, P->Y, t6);          // t6 = Z1*Y1
+    fp2mul751_mont(t1, t6, t1);              // t1 = t1*t6
+    fp2sub751(t0, t1, t0);                   // t0 = t0 - t1
+    fp2mul751_mont(t2, t0, t0);              // t0 = t2*t0
+    fp2mul751_mont(t5, t3, R->X);            // X3 = t5*t3
+    fp2add751(t4, t0, R->Y);                 // Y3 = t4 + t0
+    fp2sqr751_mont(t3, t0);                  // t0 = t3 ^ 2
+    fp2mul751_mont(t3, t0, R->Z);            // Z3 = t3*t0
 }
 
 
 void Mont_ladder(const f2elm_t x, const digit_t* m, point_proj_t P, point_proj_t Q, const f2elm_t A24, const unsigned int order_bits, const unsigned int order_fullbits, PCurveIsogenyStruct CurveIsogeny)
-{ // The Montgomery ladder, running in non constant-time
+{ // The Montgomery ladder
   // Inputs: the affine x-coordinate of a point P on E: B*y^2=x^3+A*x^2+x, 
   //         scalar m
   //         curve constant A24 = (A+2)/4

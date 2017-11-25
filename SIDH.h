@@ -7,6 +7,7 @@
 *
 * Abstract: main header file
 *
+* Modified by Geovandro C. C. F. Pereira
 *********************************************************************************************/  
 
 #ifndef __SIDH_H__
@@ -23,11 +24,12 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 
-
+ 
 // Definition of operating system
 
 #define OS_WIN       1
 #define OS_LINUX     2
+#define OS_OSX       3
 
 #if defined(__WINDOWS__)        // Microsoft Windows OS
     #define OS_TARGET OS_WIN
@@ -36,7 +38,6 @@ extern "C" {
 #else
     #error -- "Unsupported OS"
 #endif
-
 
 // Definition of compiler
 
@@ -116,7 +117,7 @@ extern "C" {
 
 
 // Extended datatype support
- 
+
 #if defined(GENERIC_IMPLEMENTATION)                       
     typedef uint64_t uint128_t[2];
 #elif (TARGET == TARGET_AMD64 && OS_TARGET == OS_LINUX) && (COMPILER == COMPILER_GCC || COMPILER == COMPILER_CLANG)
@@ -212,13 +213,15 @@ typedef struct
     unsigned int     oBbits;                                 // Order bitlength for Bob 
     unsigned int     eB;                                     // Power of Bob's subgroup order (i.e., oB = 3^eB) 
     uint64_t         Border[MAXWORDS_ORDER];                 // Order of Bob's (sub)group 
-    uint64_t         PA[2*MAXWORDS_FIELD];                   // Alice's generator PA = (XPA,YPA), where XPA and YPA are defined over GF(p)
+    uint64_t         PA[4*MAXWORDS_FIELD];                   // Alice's generator PA = (XPA,YPA), where XPA and YPA are defined over GF(p^2)
     uint64_t         PB[2*MAXWORDS_FIELD];                   // Bob's generator PB = (XPB,YPB), where XPB and YPB are defined over GF(p)
     unsigned int     BigMont_A24;                            // BigMont's curve parameter A24 = (A+2)/4
     uint64_t         BigMont_order[BIGMONT_MAXWORDS_ORDER];  // BigMont's subgroup order 
     uint64_t         Montgomery_R2[MAXWORDS_FIELD];          // Montgomery constant (2^W)^2 mod p, using a suitable value W
     uint64_t         Montgomery_pp[MAXWORDS_FIELD];          // Montgomery constant -p^-1 mod 2^W, using a suitable value W
     uint64_t         Montgomery_one[MAXWORDS_FIELD];         // Value one in Montgomery representation
+    uint64_t         epq_A[2*MAXWORDS_FIELD];                // Precomputed Pairing value epq_A = e_{2^372}(PA,QA)^3^239 in GF(p^2) used in Bob's key compression
+    uint64_t         epq_B[2*MAXWORDS_FIELD];                // Precomputed Pairing value epq_B = e_{3^239}(PB,QB)^2^372 in GF(p^2) used in Alice's key compression    
 } CurveIsogenyStaticData, *PCurveIsogenyStaticData;
 
 
@@ -237,13 +240,15 @@ typedef struct
     unsigned int     oBbits;                                 // Order bitlength for Bob 
     unsigned int     eB;                                     // Power of Bob's subgroup order (i.e., oB = 3^eB) 
     digit_t*         Border;                                 // Order of Bob's (sub)group 
-    digit_t*         PA;                                     // Alice's generator PA = (XPA,YPA), where XPA and YPA are defined over GF(p)
+    digit_t*         PA;                                     // Alice's generator PA = (XPA,YPA), where XPA and YPA are defined over GF(p^2)
     digit_t*         PB;                                     // Bob's generator PB = (XPB,YPB), where XPB and YPB are defined over GF(p)
     unsigned int     BigMont_A24;                            // BigMont's curve parameter A24 = (A+2)/4
     digit_t*         BigMont_order;                          // BigMont's subgroup order
     digit_t*         Montgomery_R2;                          // Montgomery constant (2^W)^2 mod p, using a suitable value W
     digit_t*         Montgomery_pp;                          // Montgomery constant -p^-1 mod 2^W, using a suitable value W
     digit_t*         Montgomery_one;                         // Value one in Montgomery representation
+    digit_t*         epq_A;                                  // Precomputed Pairing value epq_A = e_{2^372}(PA,QA)^3^239 in GF(p^2) used in Bob's key compression
+    digit_t*         epq_B;                                  // Precomputed Pairing value epq_B = e_{3^239}(PB,QB)^2^372 in GF(p^2) used in Alice's key compression
     RandomBytes      RandomBytesFunction;                    // Function providing random bytes to generate nonces or secret keys
 } CurveIsogenyStruct, *PCurveIsogenyStruct;
 

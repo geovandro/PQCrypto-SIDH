@@ -50,8 +50,13 @@
 //  Field addition
 //  Operation: c [reg_p3] = a [reg_p1] + b [reg_p2]
 //*********************************************************************** 
+#if defined(__APPLE__)
+.global _fpadd751_asm
+_fpadd751_asm:
+#else
 .global fpadd751_asm
 fpadd751_asm:
+#endif
   push   r12
   push   r13
   push   r14
@@ -191,8 +196,13 @@ fpadd751_asm:
 //  Field subtraction
 //  Operation: c [reg_p3] = a [reg_p1] - b [reg_p2]
 //*********************************************************************** 
+#if defined(__APPLE__)
+.global _fpsub751_asm
+_fpsub751_asm:
+#else
 .global fpsub751_asm
 fpsub751_asm:
+#endif
   push   r12
   push   r13
   push   r14
@@ -306,8 +316,13 @@ fpsub751_asm:
 //  Operation: c [reg_p3] = a [reg_p1] * b [reg_p2]
 //  NOTE: a=c or b=c are not allowed
 //***********************************************************************
+#if defined(__APPLE__)
+.global _mul751_asm
+_mul751_asm:
+#else
 .global mul751_asm
 mul751_asm:
+#endif
   push   r12
   push   r13
   push   r14
@@ -1249,8 +1264,13 @@ mul751_asm:
 //  Operation: c [reg_p2] = a [reg_p1]
 //  NOTE: a=c is not allowed
 //*********************************************************************** 
+#if defined(__APPLE__)
+.global _rdc751_asm
+_rdc751_asm:
+#else
 .global rdc751_asm
 rdc751_asm:
+#endif
   push   r12
   push   r13 
   push   r14 
@@ -1868,8 +1888,13 @@ rdc751_asm:
 //  751-bit multiprecision addition
 //  Operation: c [reg_p3] = a [reg_p1] + b [reg_p2]
 //*********************************************************************** 
+#if defined(__APPLE__)
+.global _mp_add751_asm
+_mp_add751_asm:
+#else
 .global mp_add751_asm
 mp_add751_asm:
+#endif
   push   r12
   push   r13
   push   r14
@@ -1927,8 +1952,13 @@ mp_add751_asm:
 //  2x751-bit multiprecision addition
 //  Operation: c [reg_p3] = a [reg_p1] + b [reg_p2]
 //*********************************************************************** 
+#if defined(__APPLE__)
+.global _mp_add751x2_asm
+_mp_add751x2_asm:
+#else
 .global mp_add751x2_asm
 mp_add751x2_asm:
+#endif
   push   r12
   push   r13
   push   r14

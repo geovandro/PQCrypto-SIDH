@@ -1,4 +1,4 @@
-####  Makefile for compilation on Linux  ####
+####  Makefile for compilation on Linux/MacOS  ####
 
 OPT=-O3     # Optimization option by default
 
@@ -8,6 +8,7 @@ ifeq "$(CC)" "gcc"
 else ifeq "$(CC)" "clang"
     COMPILER=clang
 endif
+
 
 ifeq "$(ARCH)" "x64"
     ARCHITECTURE=_AMD64_
@@ -36,8 +37,9 @@ ifeq "$(ARCH)" "ARM64"
     ARM_SETTING=-lrt
 endif
 
+
 cc=$(COMPILER)
-CFLAGS=-c $(OPT) $(ADDITIONAL_SETTINGS) -D $(ARCHITECTURE) -D __LINUX__ $(USE_GENERIC)
+CFLAGS=-c -g $(OPT) $(ADDITIONAL_SETTINGS) -D $(ARCHITECTURE) -D __LINUX__ $(USE_GENERIC)
 LDFLAGS=
 ifeq "$(GENERIC)" "TRUE"
     EXTRA_OBJECTS=fp_generic.o
@@ -49,7 +51,7 @@ ifeq "$(ARCH)" "ARM64"
     EXTRA_OBJECTS=fp_arm64.o fp_arm64_asm.o
 endif
 endif
-OBJECTS=kex.o ec_isogeny.o SIDH.o SIDH_setup.o fpx.o $(EXTRA_OBJECTS)
+OBJECTS=kex.o ec_isogeny.o SIDH.o entangled_basis.o ph_opt.o SIDH_setup.o fpx.o $(EXTRA_OBJECTS)
 OBJECTS_TEST=test_extras.o
 OBJECTS_ARITH_TEST=arith_tests.o $(OBJECTS_TEST) $(OBJECTS)
 OBJECTS_KEX_TEST=kex_tests.o $(OBJECTS_TEST) $(OBJECTS)
@@ -71,6 +73,12 @@ ec_isogeny.o: ec_isogeny.c SIDH_internal.h
 
 SIDH.o: SIDH.c SIDH_internal.h
 	$(CC) $(CFLAGS) SIDH.c
+	
+entangled_basis.o: entangled_basis.c SIDH_internal.h
+	$(CC) $(CFLAGS) entangled_basis.c	
+	
+ph_opt.o: ph_opt.c SIDH_internal.h
+	$(CC) $(CFLAGS) ph_opt.c
 
 SIDH_setup.o: SIDH_setup.c SIDH_internal.h
 	$(CC) $(CFLAGS) SIDH_setup.c

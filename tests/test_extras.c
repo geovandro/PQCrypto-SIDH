@@ -133,7 +133,7 @@ void fp2random751_test(f2elm_t a)
 }
 
 
-int fpcompare751(felm_t a, felm_t b)
+int fpcompare751(const felm_t a, const felm_t b)
 { // Comparing two field elements, a=b? : (1) a>b, (0) a=b, (-1) a<b
   // SECURITY NOTE: this function does not have constant-time execution. TO BE USED FOR TESTING ONLY.
     int i;
@@ -148,7 +148,7 @@ int fpcompare751(felm_t a, felm_t b)
 }
 
 
-int fp2compare751(f2elm_t a, f2elm_t b)
+int fp2compare751(const f2elm_t a, const f2elm_t b)
 { // Comparing two quadratic extension field elements, ai=bi? : (1) ai!=bi, (0) ai=bi
   // SECURITY NOTE: this function does not have constant-time execution. TO BE USED FOR TESTING ONLY.
 

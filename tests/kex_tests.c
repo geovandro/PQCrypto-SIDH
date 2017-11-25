@@ -7,23 +7,24 @@
 *
 * Abstract: benchmarking/testing isogeny-based key exchange
 *
+* Modified by Geovandro C. C. F. Pereira
 *********************************************************************************************/ 
 
 #include "../SIDH.h"
 #include "test_extras.h"
-#include <malloc.h>
+#include <stdlib.h>
 #include <stdio.h>
 
 
 // Benchmark and test parameters  
 #if defined(GENERIC_IMPLEMENTATION) 
-    #define BENCH_LOOPS        5      // Number of iterations per bench 
-    #define TEST_LOOPS         5      // Number of iterations per test
+    #define BENCH_LOOPS        10      // Number of iterations per bench 
+    #define TEST_LOOPS         10      // Number of iterations per test
 #else
-    #define BENCH_LOOPS       10       
-    #define TEST_LOOPS        10      
+    #define BENCH_LOOPS       200       
+    #define TEST_LOOPS        100      
 #endif
-#define BIGMONT_TEST_LOOPS    10      // Number of iterations per BigMont test
+#define BIGMONT_TEST_LOOPS     10      // Number of iterations per BigMont test
 
 // Used in BigMont tests
 static const uint64_t output1[12] = { 0x30E9AFA5BF75A92F, 0x88BC71EE9E221028, 0x999A50A9EE3B9A8E, 0x77E2934BD8D38B5A, 0x2668CAFC2933DB58, 0x457C65F7AD941041, 
@@ -111,78 +112,82 @@ cleanup:
 
 CRYPTO_STATUS cryptotest_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
 { // Compression tests
-	unsigned int i;
-	unsigned int pbytes = (CurveIsogenyData->pwordbits + 7)/8;    // Number of bytes in a field element 
-	unsigned int obytes = (CurveIsogenyData->owordbits + 7)/8;    // Number of bytes in an element in [1, order]
-	unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB, *CompressedPKA, *CompressedPKB, *PublicKeyA_tmp, *PublicKeyB_tmp, *SharedSecretA, *SharedSecretB, *R, *A;
-	PCurveIsogenyStruct CurveIsogeny = {0};
-	CRYPTO_STATUS Status = CRYPTO_SUCCESS;
-	bool passed = true;
+    unsigned int i;
+    unsigned int pbytes = (CurveIsogenyData->pwordbits + 7)/8;    // Number of bytes in a field element 
+    unsigned int obytes = (CurveIsogenyData->owordbits + 7)/8;    // Number of bytes in an element in [1, order]
+    unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB, *CompressedPKA, *CompressedPKB, *PublicKeyA_tmp, *PublicKeyB_tmp, *SharedSecretA, *SharedSecretB, *R, *A;
+    PCurveIsogenyStruct CurveIsogeny = {0};
+    CRYPTO_STATUS Status = CRYPTO_SUCCESS;
+    bool passed = true;
+        
 
-	// Allocating memory for private keys, public keys and shared secrets
-	PrivateKeyA = (unsigned char*)calloc(1, obytes);                   // One element in [1, order]  
-	PrivateKeyB = (unsigned char*)calloc(1, obytes);
-	PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);                // Three elements in GF(p^2)
-	PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
-	PublicKeyA_tmp = (unsigned char*)calloc(1, 3*2*pbytes);            // Three elements in GF(p^2)
-	PublicKeyB_tmp = (unsigned char*)calloc(1, 3*2*pbytes);
-	CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);    // Three elements in [1, order] plus one field element
-	CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);
+    // Allocating memory for private keys, public keys and shared secrets
+    PrivateKeyA = (unsigned char*)calloc(1, obytes);                   // One element in [1, order]  
+    PrivateKeyB = (unsigned char*)calloc(1, obytes);
+    PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);                // Three elements in GF(p^2)
+    PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
+    PublicKeyA_tmp = (unsigned char*)calloc(1, 3*2*pbytes);            // Three elements in GF(p^2)
+    PublicKeyB_tmp = (unsigned char*)calloc(1, 3*2*pbytes);
+    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);    // Three elements in [1, order] plus one field element
+    CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);
     SharedSecretA = (unsigned char*)calloc(1, 2*pbytes);               // One element in GF(p^2)  
     SharedSecretB = (unsigned char*)calloc(1, 2*pbytes);
     R = (unsigned char*)calloc(1, 2*2*pbytes);                         // One point in (X:Z) coordinates 
     A = (unsigned char*)calloc(1, 2*pbytes);                           // One element in GF(p^2)  
-
+    
     printf("\n\nTESTING EPHEMERAL ISOGENY-BASED KEY EXCHANGE USING COMPRESSION \n");
     printf("--------------------------------------------------------------------------------------------------------\n\n");
     printf("Curve isogeny system: %s \n\n", CurveIsogenyData->CurveIsogeny);
-
-	// Curve isogeny system initialization
-	CurveIsogeny = SIDH_curve_allocate(CurveIsogenyData);
-	if (CurveIsogeny == NULL) {
-		Status = CRYPTO_ERROR_NO_MEMORY;
-		goto cleanup;
-	}
-	Status = SIDH_curve_initialize(CurveIsogeny, &random_bytes_test, CurveIsogenyData);
-	if (Status != CRYPTO_SUCCESS) {
-		goto cleanup;
-	}
+    
+    // Curve isogeny system initialization
+    CurveIsogeny = SIDH_curve_allocate(CurveIsogenyData);
+    if (CurveIsogeny == NULL) {
+            Status = CRYPTO_ERROR_NO_MEMORY;
+            goto cleanup;
+    }
+    Status = SIDH_curve_initialize(CurveIsogeny, &random_bytes_test, CurveIsogenyData);
+    if (Status != CRYPTO_SUCCESS) {
+            goto cleanup;
+    }
 
     for (i = 0; i < TEST_LOOPS; i++) 
     {
-        Status = EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);                            // Get some value as Alice's secret key and compute Alice's public key
+        Status = EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);                           // Get some value as Alice's secret key and compute Alice's public key
         if (Status != CRYPTO_SUCCESS) {                                                  
             goto cleanup;
-        } 
-        PublicKeyCompression_A(PublicKeyA, CompressedPKA, CurveIsogeny);                                     // Alice compresses her public key
-
-        Status = EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);                            // Get some value as Bob's secret key and compute Bob's public key
+        }         
+        PublicKeyCompression_A_fast(PublicKeyA, CompressedPKA, CurveIsogeny);                               // Alice compresses her public key
+        
+        Status = EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);                           // Get some value as Bob's secret key and compute Bob's public key
         if (Status != CRYPTO_SUCCESS) {                                                  
             goto cleanup;
         }
-        PublicKeyCompression_B(PublicKeyB, CompressedPKB, CurveIsogeny);                                     // Bob compresses his public key
+        PublicKeyCompression_B_fast(PublicKeyB, CompressedPKB, CurveIsogeny);                               // Bob compresses his public key
 
-        PublicKeyBDecompression_A(PrivateKeyA, CompressedPKB, R, A, CurveIsogeny);                           // Alice decompresses Bob's public key data using her private key
-        Status = EphemeralSecretAgreement_Compression_A(PrivateKeyA, R, A, SharedSecretA, CurveIsogeny);     // Alice computes her shared secret using decompressed Bob's public key data
+        PublicKeyBDecompression_A_fast(PrivateKeyA, CompressedPKB, R, A, CurveIsogeny);                     // Alice decompresses Bob's public key data using her private key
+        Status = EphemeralSecretAgreement_Compression_A(PrivateKeyA, R, A, SharedSecretA, CurveIsogeny);    // Alice computes her shared secret using decompressed Bob's public key data        
         if (Status != CRYPTO_SUCCESS) {
             goto cleanup;
-        }  
+        }
 
-        PublicKeyADecompression_B(PrivateKeyB, CompressedPKA, R, A, CurveIsogeny);                           // Bob decompresses Alice's public key data using his private key  
-        Status = EphemeralSecretAgreement_Compression_B(PrivateKeyB, R, A, SharedSecretB, CurveIsogeny);     // Bob computes his shared secret using the decompressed Alice's public key data
+        PublicKeyADecompression_B_fast(PrivateKeyB, CompressedPKA, R, A, CurveIsogeny);                     // Bob decompresses Alice's public key data using his private key  
+        Status = EphemeralSecretAgreement_Compression_B(PrivateKeyB, R, A, SharedSecretB, CurveIsogeny);    // Bob computes his shared secret using the decompressed Alice's public key data
         if (Status != CRYPTO_SUCCESS) {
             goto cleanup;
-        }  
+        }
 
         if (compare_words((digit_t*)SharedSecretA, (digit_t*)SharedSecretB, NBYTES_TO_NWORDS(2*pbytes)) != 0) {
             passed = false;
             Status = CRYPTO_ERROR_SHARED_KEY;
             break;
         }
-	}
-	if (passed == true) printf("  Key exchange tests using compression.......................... PASSED");
-	else { printf("  Key exchange tests using compression... FAILED"); printf("\n"); goto cleanup; }
-	printf("\n"); 
+    }
+    if (passed == true) { 
+        printf("  Key exchange tests using compression.......................... PASSED"); 
+    } else { 
+        printf("  Key exchange tests using compression... FAILED"); printf("\n"); goto cleanup; 
+    }
+    printf("\n"); 
 
 cleanup:
     SIDH_curve_free(CurveIsogeny);   
@@ -266,7 +271,6 @@ CRYPTO_STATUS cryptorun_kex(PCurveIsogenyStaticData CurveIsogenyData)
     PCurveIsogenyStruct CurveIsogeny = {0};
     unsigned long long cycles, cycles1, cycles2;
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;
-    bool passed;
         
     // Allocating memory for private keys, public keys and shared secrets
     PrivateKeyA = (unsigned char*)calloc(1, obytes);        // One element in [1, order]  
@@ -292,75 +296,51 @@ CRYPTO_STATUS cryptorun_kex(PCurveIsogenyStaticData CurveIsogenyData)
     }
 
     // Benchmarking Alice's key generation
-    passed = true;
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         cycles1 = cpucycles();
         Status = EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);                     
-        if (Status != CRYPTO_SUCCESS) {                                                  
-            passed = false;
-            break;
-        }    
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Alice's key generation runs in ............................... %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Alice's key generation failed"); goto cleanup; } 
+    printf("  Alice's key generation runs in ............................... %10lld ", cycles/BENCH_LOOPS); print_unit;
     printf("\n");
 
     // Benchmarking Bob's key generation
-    passed = true;
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         cycles1 = cpucycles();
         Status = EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);                     
-        if (Status != CRYPTO_SUCCESS) {                                                  
-            passed = false;
-            break;
-        }    
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Bob's key generation runs in ................................. %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Bob's key generation failed"); goto cleanup; } 
+    printf("  Bob's key generation runs in ................................. %10lld ", cycles/BENCH_LOOPS); print_unit;
     printf("\n");
 
     // Benchmarking Alice's shared key computation
-    passed = true;
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         cycles1 = cpucycles();
         Status = EphemeralSecretAgreement_A(PrivateKeyA, PublicKeyB, SharedSecretA, CurveIsogeny);                     
-        if (Status != CRYPTO_SUCCESS) {                                                  
-            passed = false;
-            break;
-        }    
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Alice's shared key computation runs in ....................... %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Alice's shared key computation failed"); goto cleanup; } 
+    printf("  Alice's shared key computation runs in ....................... %10lld ", cycles/BENCH_LOOPS); print_unit;
     printf("\n");
 
     // Benchmarking Bob's shared key computation
-    passed = true;
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         cycles1 = cpucycles();
         Status = EphemeralSecretAgreement_B(PrivateKeyB, PublicKeyA, SharedSecretB, CurveIsogeny);                     
-        if (Status != CRYPTO_SUCCESS) {                                                  
-            passed = false;
-            break;
-        }    
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Bob's shared key computation runs in ......................... %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Bob's shared key computation failed"); goto cleanup; } 
+    printf("  Bob's shared key computation runs in ......................... %10lld ", cycles/BENCH_LOOPS); print_unit;
     printf("\n");
 
 cleanup:
@@ -382,9 +362,8 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     unsigned int n, obytes = (CurveIsogenyData->owordbits + 7)/8;   // Number of bytes in an element in [1, order]
     unsigned char *PrivateKeyA, *PrivateKeyB, *PublicKeyA, *PublicKeyB, *CompressedPKA, *CompressedPKB, *SharedSecretA, *SharedSecretB, *R, *A;
     PCurveIsogenyStruct CurveIsogeny = {0};
-    unsigned long long cycles, cycles1, cycles2;
+    unsigned long long cycles, msrcycles, cycles1, cycles2;
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;
-    bool passed;
         
     // Allocating memory for private keys, public keys and shared secrets
     PrivateKeyA = (unsigned char*)calloc(1, obytes);                   // One element in [1, order]  
@@ -423,115 +402,144 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
         goto cleanup;
     }
 
+    
     // Benchmarking Alice's public key compression
-    passed = true;
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
-    {
+    {    
+        EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);    // Get some value as Alice's secret key and compute Alice's public key        
+        
         cycles1 = cpucycles(); 
-        PublicKeyCompression_A(PublicKeyA, CompressedPKA, CurveIsogeny);                   
-        //if (Status != CRYPTO_SUCCESS) {                                                  
-        //    passed = false;
-        //    break;
-        //}    
+        PublicKeyCompression_A_fast(PublicKeyA, CompressedPKA, CurveIsogeny);
         cycles2 = cpucycles();
-        cycles = cycles+(cycles2-cycles1);
+        cycles = cycles+(cycles2-cycles1);     
+    }    
+    
+    msrcycles = 0;
+    for (n = 0; n < BENCH_LOOPS; n++)
+    {
+        EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);    // Get some value as Alice's secret key and compute Alice's public key        
+        
+        cycles1 = cpucycles(); 
+        PublicKeyCompression_A(PublicKeyA, CompressedPKA, CurveIsogeny);
+        cycles2 = cpucycles();
+        msrcycles = msrcycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Alice's public key compression runs in ....................... %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Alice's public key compression failed"); goto cleanup; } 
+    printf("  Alice's public key compression runs in ....................... %10lld ", msrcycles/BENCH_LOOPS); print_unit; 
+    printf("\n  Fast Alice's public key compression runs in .................. %10lld ", cycles/BENCH_LOOPS); print_unit;
+    printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);
     printf("\n");
-
-    // Benchmarking Alice's key decompression
-    passed = true;
+    
+    // Benchmarking Alice's key decompression by Bob
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
-        cycles1 = cpucycles();
-        PublicKeyADecompression_B(PrivateKeyB, CompressedPKA, R, A, CurveIsogeny);    // Bob decompresses Alice's public key data using his private key  
-        if (Status != CRYPTO_SUCCESS) {
-            goto cleanup;
-        }                 
-        //if (Status != CRYPTO_SUCCESS) {                                                  
-        //    passed = false;
-        //    break;
-        //}    
-        cycles2 = cpucycles();
-        cycles = cycles+(cycles2-cycles1);
-    }
-    if (passed) { printf("  Alice's public key decompression by Bob runs in .............. %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Alice's public key decompression by Bob failed"); goto cleanup; } 
-    printf("\n");
+        EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);    // Get some value as Alice's secret key and compute Alice's public key 
+        PublicKeyCompression_A_fast(PublicKeyA, CompressedPKA, CurveIsogeny);         
 
+        cycles1 = cpucycles();
+        PublicKeyADecompression_B_fast(PrivateKeyB, CompressedPKA, R, A, CurveIsogeny); // Faster
+        cycles2 = cpucycles();
+        cycles = cycles+(cycles2-cycles1);      
+    }    
+
+    msrcycles = 0;
+    for (n = 0; n < BENCH_LOOPS; n++)
+    {
+        EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);    // Get some value as Alice's secret key and compute Alice's public key         
+        PublicKeyCompression_A(PublicKeyA, CompressedPKA, CurveIsogeny); 
+        
+        cycles1 = cpucycles();
+        PublicKeyADecompression_B(PrivateKeyB, CompressedPKA, R, A, CurveIsogeny);  //Original: Bob decompresses Alice's public key data using his private key  
+        cycles2 = cpucycles();
+        msrcycles = msrcycles+(cycles2-cycles1);
+    }    
+    printf("\n  Alice's public key decompression by Bob runs in .............. %10lld ", msrcycles/BENCH_LOOPS); print_unit; 
+    printf("\n  Fast Alice's public key decompression by Bob runs in ......... %10lld ", cycles/BENCH_LOOPS); print_unit; 
+    printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);
+
+    printf("\n");
+    
     // Benchmarking Bob's shared key computation
-    passed = true;
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         cycles1 = cpucycles();
         Status = EphemeralSecretAgreement_Compression_B(PrivateKeyB, R, A, SharedSecretB, CurveIsogeny);    // Bob computes his shared secret using the decompressed Alice's public key data
-        if (Status != CRYPTO_SUCCESS) {                                                  
-            passed = false;
-            break;
-        }    
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Bob's shared key computation runs in ......................... %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Bob's shared key computation failed"); goto cleanup; } 
+    printf("\n  Bob's shared key computation runs in ......................... %10lld ", cycles/BENCH_LOOPS); print_unit;
+
     printf("\n");
 
     // Benchmarking Bob's public key compression
-    passed = true;
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
-    {
+    {        
+        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
+          
+        cycles1 = cpucycles();
+        PublicKeyCompression_B_fast(PublicKeyB, CompressedPKB, CurveIsogeny); 
+        cycles2 = cpucycles();
+        cycles = cycles+(cycles2-cycles1);        
+    }    
+    
+    msrcycles = 0;
+    for (n = 0; n < BENCH_LOOPS; n++)
+    {        
+        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
+        
         cycles1 = cpucycles();
         PublicKeyCompression_B(PublicKeyB, CompressedPKB, CurveIsogeny);                    
-        //if (Status != CRYPTO_SUCCESS) {                                                  
-        //    passed = false;
-        //    break;
-        //}    
         cycles2 = cpucycles();
-        cycles = cycles+(cycles2-cycles1);
+        msrcycles = msrcycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Bob's public key compression runs in ......................... %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Bob's public key compression failed"); goto cleanup; } 
+    printf("\n  Bob's public key compression runs in ......................... %10lld ", msrcycles/BENCH_LOOPS); print_unit; 
+    printf("\n  Fast Bob's public key compression runs in .................... %10lld ", cycles/BENCH_LOOPS); print_unit; 
+    printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");
-
-    // Benchmarking Bob's key decompression
-    passed = true;
-    cycles = 0;
+    
+    // Benchmarking Alice's decompression
+    cycles = 0;    
     for (n = 0; n < BENCH_LOOPS; n++)
     {
+        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
+        PublicKeyCompression_B_fast(PublicKeyB, CompressedPKB, CurveIsogeny);
+        
         cycles1 = cpucycles();
-        PublicKeyBDecompression_A(PrivateKeyA, CompressedPKB, R, A, CurveIsogeny);    // Alice decompresses Bob's public key data using her private key                     
-        //if (Status != CRYPTO_SUCCESS) {                                                  
-        //    passed = false;
-        //    break;
-        //}    
+        PublicKeyBDecompression_A_fast(PrivateKeyA, CompressedPKB, R, A, CurveIsogeny);
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Bob's public key decompression by Alice runs in .............. %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Bob's public key decompression by Alice failed"); goto cleanup; } 
-    printf("\n");
 
+    msrcycles = 0;
+    for (n = 0; n < BENCH_LOOPS; n++)
+    {
+        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
+        PublicKeyCompression_B(PublicKeyB, CompressedPKB, CurveIsogeny);
+        
+        cycles1 = cpucycles();
+        PublicKeyBDecompression_A(PrivateKeyA, CompressedPKB, R, A, CurveIsogeny);    // Original: Alice decompresses Bob's public key data using her private key                     
+        cycles2 = cpucycles();
+        msrcycles = msrcycles+(cycles2-cycles1);
+    }
+    printf("\n  Bob's public key decompression by Alice runs in .............. %10lld ", msrcycles/BENCH_LOOPS); print_unit; 
+    printf("\n  Fast Bob's public key decompression by Alice runs in ......... %10lld ", cycles/BENCH_LOOPS); print_unit; 
+    printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);
+    printf("\n");    
+    
     // Benchmarking Alice's shared key computation
-    passed = true;
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         cycles1 = cpucycles();
         Status = EphemeralSecretAgreement_Compression_A(PrivateKeyA, R, A, SharedSecretA, CurveIsogeny);    // Alice computes her shared secret using the decompressed Bob's public key data
-        if (Status != CRYPTO_SUCCESS) {                                                  
-            passed = false;
-            break;
-        }    
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    if (passed) { printf("  Alice's shared key computation runs in ....................... %10lld ", cycles/BENCH_LOOPS); print_unit; }
-    else { printf("  Alice's shared key computation failed"); goto cleanup; } 
+    printf("\n  Alice's shared key computation runs in ....................... %10lld ", cycles/BENCH_LOOPS); print_unit;
+
     printf("\n");
 
 cleanup:
@@ -554,10 +562,10 @@ cleanup:
 CRYPTO_STATUS cryptorun_BigMont(PCurveIsogenyStaticData CurveIsogenyData)
 { // Benchmarking BigMont
     unsigned int i; 
+    unsigned long long cycles, cycles1, cycles2;
     digit_t scalar[BIGMONT_NWORDS_ORDER] = {0};
     f2elm_t x = {0};
     PCurveIsogenyStruct CurveIsogeny = {0};
-    unsigned long long cycles, cycles1, cycles2;
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;
     bool passed;
 
@@ -609,7 +617,7 @@ cleanup:
 int main()
 {
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;
-    
+
     Status = cryptotest_kex(&CurveIsogeny_SIDHp751);             // Test key exchange system "SIDHp751"
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
@@ -621,7 +629,7 @@ int main()
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-    
+
     Status = cryptotest_kex_compress(&CurveIsogeny_SIDHp751);    // Test key exchange system "SIDHp751" using compression
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
@@ -645,6 +653,6 @@ int main()
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-    
+
     return true;
 }

@@ -6,11 +6,14 @@
 *
 *
 * Abstract: core functions over GF(p751^2) and field operations modulo the prime p751
-*
+* 
+* Modified by Geovandro C. C. F. Pereira and Gustavo Zanon
 *********************************************************************************************/ 
 
 #include "SIDH_internal.h"
+#include "tests/test_extras.h"
 #include <string.h>
+#include <stdio.h>
     
 
 // Global constants          
@@ -22,6 +25,38 @@ const uint64_t p751x2[NWORDS_FIELD]        = { 0xFFFFFFFFFFFFFFFE, 0xFFFFFFFFFFF
                                                0xC7D92D0A93F0F151, 0xB52B363427EF98ED, 0x109D30CFADD7D0ED, 0x0AC56A08B964AE90, 0x1C25213F2F75B8CD, 0x0000DFCBAA83EE38 };
 const uint64_t Montgomery_R2[NWORDS_FIELD] = { 0x233046449DAD4058, 0xDB010161A696452A, 0x5E36941472E3FD8E, 0xF40BFE2082A2E706, 0x4932CCA8904F8751 ,0x1F735F1F1EE7FC81, 
                                                0xA24F4D80C1048E18, 0xB56C383CCDB607C5, 0x441DD47B735F9C90, 0x5673ED2C6A6AC82A, 0x06C905261132294B, 0x000041AD830F1F35 }; 
+
+
+void print_fp(const felm_t a, int isMonty)
+{
+    int i;
+    felm_t b;
+    
+    if (isMonty == 1) 
+        from_mont(a, b);
+    else
+        fpcopy751(a,b);
+    for (i = NWORDS_FIELD-1; i >= 0 ; i--) {
+#if defined(__APPLE__)        
+        printf("%016llx", b[i]);
+#else        
+        printf("%016lx", b[i]);
+#endif        
+    }
+    printf("\n");
+}
+
+void print_dl(const digit_t *a)
+{
+    for (int i = NWORDS_ORDER-1; i >= 0 ; i--) {
+#if defined(__APPLE__)        
+        printf("%016llx", a[i]);
+#else
+        printf("%016lx", a[i]);
+#endif
+    }
+    printf("\n");
+}
 
 
 /*******************************************************/
@@ -76,6 +111,25 @@ void from_mont(const felm_t ma, felm_t c)
     fpcorrection751(c);
 }
 
+void from_base(int *D, digit_t *r, int Dlen, int base) 
+{
+    digit_t ell[6] = {0}, digit[6] = {0}, temp[6] = {0};
+    
+    ell[0] = base;
+    r[0] = D[Dlen-1]*ell[0]; 
+    for (int i = Dlen-2; i >= 1; i--) {
+        digit[0] = D[i];
+        mp_add(r, digit, r, 6);
+        if (base == 2) {
+            mp_add(r, r, r, 6);
+        } else {
+            mp_add(r, r, temp, 6);
+            mp_add(r, temp, r, 6);
+        }
+    }
+    digit[0] = (digit_t)D[0];
+    mp_add(r, digit, r, 6);
+}
 
 static __inline unsigned int is_felm_zero(const felm_t x)
 { // Is x = 0? return 1 (TRUE) if condition is true, 0 (FALSE) otherwise.
@@ -213,6 +267,7 @@ void fpsqr751_mont(const felm_t ma, felm_t mc)
     mp_mul(ma, ma, temp, NWORDS_FIELD);
     rdc_mont(temp, mc);
 }
+
 
 
 void fpinv751_chain_mont(felm_t a)
@@ -479,8 +534,10 @@ void fp2zero751(f2elm_t a)
 
 void fp2neg751(f2elm_t a)
 { // GF(p751^2) negation, a = -a in GF(p751^2).
-    fpneg751(a[0]);
-    fpneg751(a[1]);
+    //if (!is_felm_zero(a[0]))
+        fpneg751(a[0]);
+    //if (!is_felm_zero(a[1]))
+        fpneg751(a[1]);
 }
 
 
@@ -498,6 +555,15 @@ __inline void fp2sub751(const f2elm_t a, const f2elm_t b, f2elm_t c)
 }
 
 
+void fp2shl751(const f2elm_t a, const int k, f2elm_t c) 
+{  // c = (2^k)*a
+   fp2copy751(a, c);
+   for (int j = 0; j < k; j++) {
+      fp2add751(c, c, c);
+   }
+}
+
+
 void fp2div2_751(const f2elm_t a, f2elm_t c)          
 { // GF(p751^2) division by two, c = a/2  in GF(p751^2).
     fpdiv2_751(a[0], c[0]);
@@ -512,6 +578,138 @@ void fp2correction751(f2elm_t a)
 }
 
 
+void fp2_conj(const f2elm_t v, f2elm_t r)
+{ //r = a - b*i where v = a + b*i
+    fpcopy751(v[0],r[0]);
+    fpcopy751(v[1],r[1]);
+    
+    if(!is_felm_zero(r[1])) // It seems there is a bug in fpneg751 since fpneg751(0) != 0
+        fpneg751(r[1]);
+}
+
+
+void sqrtinv2(f2elm_t v, f2elm_t z, f2elm_t s, f2elm_t invz)
+{ // Compute the square root of a field element v in F_{p^2} and invert a field element z.
+    int j;
+    felm_t az, bz, av, bv, Nz, Nv, av2, bv2, r, t, x, y, kk;
+    f2elm_t conjz, zero = {0};
+    
+    fpsqr751_mont(z[0],az);
+    fpsqr751_mont(z[1],bz);
+    fpadd751(az,bz,Nz);
+    
+    fpcopy751(v[0],av);
+    fpcopy751(v[1],bv);
+
+    if (fpcompare751(bv,zero[0]) != 0) {
+        fpsqr751_mont(av,av2);
+        fpsqr751_mont(bv,bv2);
+        fpadd751(av2,bv2,Nv);
+
+        fpcopy751(Nv,r);
+        for (j = 0; j < 370; j++)
+            fpsqr751_mont(r,r);
+        for (j = 0; j < 239; j++) {
+            fpsqr751_mont(r,t);
+            fpmul751_mont(r,t,r);
+        }        
+        fpsqr751_mont(r,t);
+        fpcorrection751(t);
+        fpcorrection751(Nv);
+        if (fpcompare751(t,Nv) == 0) {
+            mp_add(av,r,r,NWORDS64_FIELD);            
+            
+            if ((r[0] & 0x01) != 0)
+                mp_add(r,(digit_t*)&p751,r,NWORDS64_FIELD);
+            
+            mp_shiftr1(r,NWORDS64_FIELD);
+
+            fpcopy751(r,x);
+            for (j = 0; j < 370; j++)
+                fpsqr751_mont(x,x);
+            for (j = 0; j < 239; j++) {
+                fpsqr751_mont(x,t);
+                fpmul751_mont(x,t,x);
+            }        
+            
+            if (fpcompare751(Nz,zero[0]) != 0) {
+                fpmul751_mont(x,Nz,t);
+                fpadd751(t,t,t);
+                fpinv751_mont_bingcd(t); 
+                fpcopy751(t,kk);
+                fpmul751_mont(bv,Nz,y);
+                fpmul751_mont(y,kk,y);
+                
+                fpsqr751_mont(x,t);
+                fpcorrection751(t);
+                fpcorrection751(r);
+                if (fpcompare751(t,r) == 0) {
+                    fpcopy751(x,s[0]);
+                    fpcopy751(y,s[1]);
+                } else {
+                    fpcopy751(y,s[0]);
+                    fpcopy751(x,s[1]);                    
+                }
+                fp2_conj(z,conjz);
+                fpmul751_mont(x,kk,t);
+                fpadd751(t,t,t);
+                fpmul751_mont(t,conjz[0],invz[0]);
+                fpmul751_mont(t,conjz[1],invz[1]);
+            } else {
+                fpadd751(x,x,t);
+                fpinv751_mont_bingcd(t);
+                fpmul751_mont(bv,t,y);                
+                fpsqr751_mont(x,t);
+                if (fpcompare751(t,r) == 0) {
+                    fpcopy751(x,s[0]);
+                    fpcopy751(y,s[1]);
+                } else {
+                    fpcopy751(y,s[0]);
+                    fpcopy751(x,s[1]);                    
+                }
+                fp2copy751(zero,invz);                
+            }
+
+        } else {
+            fp2copy751(zero,s);
+            if (fpcompare751(Nz,zero[0]) != 0) {
+                fpinv751_mont_bingcd(Nz);
+                fp2_conj(z,conjz);
+                fpmul751_mont(Nz,conjz[0],invz[0]);
+                fpmul751_mont(Nz,conjz[1],invz[1]);                
+            } else {
+                fp2copy751(zero,invz);
+            }
+        }
+    } else {
+        fpcopy751(av,r);
+        for (j = 0; j < 370; j++)
+            fpsqr751_mont(r,r);
+        for (j = 0; j < 239; j++) {
+            fpsqr751_mont(r,t);
+            fpmul751_mont(r,t,r);
+        }            
+        fpsqr751_mont(r,t);
+        if (fpcompare751(t,av) == 0) {
+            fpcopy751(r,s[0]);
+            fpcopy751(zero[0],s[1]);
+        } else {
+            fpcopy751(zero[0],s[0]);
+            fpcopy751(r,s[1]);
+        }
+
+        if (fpcompare751(Nz,zero[0]) != 0) {
+            fp2_conj(z,conjz);
+            fpinv751_mont_bingcd(Nz);
+            fpmul751_mont(Nz,conjz[0],invz[0]);
+            fpmul751_mont(Nz,conjz[1],invz[1]);            
+        } else {
+            fp2copy751(zero,invz);
+        }
+    }
+}
+
+
 void fp2sqr751_mont(const f2elm_t a, f2elm_t c)
 { // GF(p751^2) squaring using Montgomery arithmetic, c = a^2 in GF(p751^2).
   // Inputs: a = a0+a1*i, where a0, a1 are in [0, 2*p751-1] 
@@ -522,7 +720,7 @@ void fp2sqr751_mont(const f2elm_t a, f2elm_t c)
     fpsub751(a[0], a[1], t2);                // t2 = a0-a1
     mp_add751(a[0], a[0], t3);               // t3 = 2a0
     fpmul751_mont(t1, t2, c[0]);             // c0 = (a0+a1)(a0-a1)
-    fpmul751_mont(t3, a[1], c[1]);           // c1 = 2a0*a1
+    fpmul751_mont(t3, a[1], c[1]);           // c1 = 2a0*a1    
 }
 
 
@@ -556,7 +754,6 @@ void fp2mul751_mont(const f2elm_t a, const f2elm_t b, f2elm_t c)
 void to_fp2mont(const f2elm_t a, f2elm_t mc)
 { // Conversion of a GF(p751^2) element to Montgomery representation,
   // mc_i = a_i*R^2*R^(-1) = a_i*R in GF(p751^2). 
-
     to_mont(a[0], mc[0]);
     to_mont(a[1], mc[1]);
 }
@@ -565,7 +762,6 @@ void to_fp2mont(const f2elm_t a, f2elm_t mc)
 void from_fp2mont(const f2elm_t ma, f2elm_t c)
 { // Conversion of a GF(p751^2) element from Montgomery representation to standard representation,
   // c_i = ma_i*R^(-1) = a_i in GF(p751^2).
-
     from_mont(ma[0], c[0]);
     from_mont(ma[1], c[1]);
 }
@@ -584,6 +780,7 @@ void fp2inv751_mont(f2elm_t a)
     fpmul751_mont(a[1], t1[0], a[1]);       // a = (a0-i*a1)*(a0^2+a1^2)^-1
 }
 
+
 void fp2inv751_mont_bingcd(f2elm_t a)
 {// GF(p751^2) inversion using Montgomery arithmetic, a = (a0-i*a1)/(a0^2+a1^2)
  // This uses the binary GCD for inversion in fp and is NOT constant time!!!
@@ -597,7 +794,6 @@ void fp2inv751_mont_bingcd(f2elm_t a)
 	fpmul751_mont(a[0], t1[0], a[0]);
 	fpmul751_mont(a[1], t1[0], a[1]);       // a = (a0-i*a1)*(a0^2+a1^2)^-1
 }
-
 
 
 void swap_points_basefield(point_basefield_proj_t P, point_basefield_proj_t Q, const digit_t option)
@@ -668,7 +864,7 @@ void mont_n_way_inv(const f2elm_t* vec, const int n, f2elm_t* out)
     fp2inv751_mont_bingcd(t1);
     
     for (i = n-1; i >= 1; i--) {
-		fp2mul751_mont(out[i-1], t1, out[i]);        // out[i] = t1*out[i-1]
+		fp2mul751_mont(out[i-1], t1, out[i]);// out[i] = t1*out[i-1]
         fp2mul751_mont(t1, vec[i], t1);              // t1 = t1*vec[i]
     }
     fp2copy751(t1, out[0]);                          // out[0] = t1
@@ -715,8 +911,8 @@ void sqrt_Fp2_frac(const f2elm_t u, const f2elm_t v, f2elm_t y)
     fpmul751_mont(t2, t3, y1);              // y1 = t3*t2 
     fpsqr751_mont(t1, t1);                  // t1 = t1^2
     fpmul751_mont(t0, t1, t1);              // t1 = t1*t0
-	fpcorrection751(t);
-	fpcorrection751(t1);
+    fpcorrection751(t);
+    fpcorrection751(t1);
 
     if (fpequal751_non_constant_time(t1, t) == false) {
         fpcopy751(y0, t);                   
@@ -732,8 +928,8 @@ void sqrt_Fp2_frac(const f2elm_t u, const f2elm_t v, f2elm_t y)
     fpmul751_mont(v1, t1, t1);              // t1 = t1*v1
     fpadd751(t1, t1, t1);                   // t1 = t1+t1
     fpsub751(t0, t1, t0);                   // t0 = t0-t1
-	fpcorrection751(t0);
-	fpcorrection751(u0);
+    fpcorrection751(t0);
+    fpcorrection751(u0);
 	
     if (fpequal751_non_constant_time(t0, u0) == false) {
         fpneg751(y1);                       // y1 = -y1
@@ -780,6 +976,32 @@ void sqrt_Fp2(const f2elm_t u, f2elm_t y)
 }
 
 
+unsigned char is_sqr_fp2(const f2elm_t a, felm_t s) {
+    int i;
+    felm_t a0,a1,z,temp;
+    
+    fpsqr751_mont(a[0],a0);
+    fpsqr751_mont(a[1],a1);
+    fpadd751(a0,a1,z);
+    
+    fpcopy751(z,s);
+    for (i = 0; i < 370; i++) {             
+        fpsqr751_mont(s, s);
+    }
+    for (i = 0; i < 239; i++) {
+        fpsqr751_mont(s, temp);                                         
+        fpmul751_mont(s, temp, s);                                      
+    }  
+    fpsqr751_mont(s,temp);          // s = z^((p+1)/4)
+    fpcorrection751(temp);
+    fpcorrection751(z);
+    if (fpcompare751(temp,z) != 0)  // s^2 =? z
+        return 0;
+    
+    return 1;
+}
+
+
 void cube_Fp2_cycl(f2elm_t a, const felm_t one)
 { // Cyclotomic cubing on elements of norm 1, using a^(p+1) = 1.
      felm_t t0;
@@ -809,8 +1031,8 @@ void sqr_Fp2_cycl(f2elm_t a, const felm_t one)
 
 __inline void inv_Fp2_cycl(f2elm_t a)
 { // Cyclotomic inversion, a^(p+1) = 1 => a^(-1) = a^p = a0 - i*a1.
-
-     fpneg751(a[1]);
+    if (!is_felm_zero(a[1])) // It seems there is a bug in fpneg751 since fpneg751(0) != 0
+        fpneg751(a[1]);
 }
 
 
@@ -819,7 +1041,7 @@ void exp6_Fp2_cycl(const f2elm_t y, const uint64_t t, const felm_t one, f2elm_t 
     unsigned int i, bit;
 
     fp2zero751(res);
-	fpcopy751(one, res[0]);             // res = 1
+    fpcopy751(one, res[0]);             // res = 1
 
     if (t != 0) {
         for (i = 0; i < 6; i++) {
@@ -835,57 +1057,57 @@ void exp6_Fp2_cycl(const f2elm_t y, const uint64_t t, const felm_t one, f2elm_t 
 
 void exp21_Fp2_cycl(const f2elm_t y, const uint64_t t, const felm_t one, f2elm_t res)
 { // Exponentiation y^t via square and multiply in the cyclotomic group. Exponent t is 21 bits at most.
-	unsigned int i, bit;
+    unsigned int i, bit;
 
-	fp2zero751(res);
-	fpcopy751(one, res[0]);             // res = 1
+    fp2zero751(res);
+    fpcopy751(one, res[0]);             // res = 1
 
-	if (t != 0) {
-		for (i = 0; i < 21; i++) {
-			sqr_Fp2_cycl(res, one);
-			bit = 1 & (t >> (20 - i));
-			if (bit == 1) {
-				fp2mul751_mont(res, y, res);
-			}
-		}
-	}
+    if (t != 0) {
+        for (i = 0; i < 21; i++) {
+            sqr_Fp2_cycl(res, one);
+            bit = 1 & (t >> (20 - i));
+            if (bit == 1) {
+                fp2mul751_mont(res, y, res);
+            }
+        }
+    }
 }
 
 
 static bool is_zero(digit_t* a, unsigned int nwords)
 { // Check if multiprecision element is zero.
   // SECURITY NOTE: This function does not run in constant time.
-	unsigned int i;
+    unsigned int i;
 
-	for (i = 0; i < nwords; i++) {
-		if (a[i] != 0) {
+    for (i = 0; i < nwords; i++) {
+        if (a[i] != 0) {
             return false;
         } 
-	}
+    }
 
-	return true;
+    return true;
 }
 
 
 void exp_Fp2_cycl(const f2elm_t y, uint64_t* t, const felm_t one, f2elm_t res, int length)
 { // Exponentiation y^t via square and multiply in the cyclotomic group. 
   // This function uses 64-bit digits for representing exponents.
-	unsigned int nword, bit, nwords = (length+63)/64;
-	int i;
+    unsigned int nword, bit, nwords = (length+63)/64;
+    int i;
 
-	fp2zero751(res);
-	fpcopy751(one, res[0]);               // res = 1
+    fp2zero751(res);
+    fpcopy751(one, res[0]);               // res = 1
 
-	if (!is_zero((digit_t*)t, nwords)) {  // Is t = 0?
-		for (i = length; i >= 0; i--) {
-			sqr_Fp2_cycl(res, one);
-			nword = i >> 6;
-			bit = 1 & (t[nword] >> (i - (nword << 6)));
-			if (bit == 1) {
-				fp2mul751_mont(res, y, res);
-			}
-		}
-	}
+    if (!is_zero((digit_t*)t, nwords)) {  // Is t = 0?
+        for (i = length; i >= 0; i--) {
+            sqr_Fp2_cycl(res, one);
+            nword = i >> 6;
+            bit = 1 & (t[nword] >> (i - (nword << 6)));
+            if (bit == 1) {
+                fp2mul751_mont(res, y, res);
+            }
+        }
+    }
 }
 
 
@@ -918,7 +1140,7 @@ bool is_cube_Fp2(f2elm_t u, PCurveIsogenyStruct CurveIsogeny)
     unsigned int e;
 
     fpcopy751(CurveIsogeny->Montgomery_one, one);
-	fpsqr751_mont(u[0], v[0]);              // v0 = u0^2
+    fpsqr751_mont(u[0], v[0]);              // v0 = u0^2
     fpsqr751_mont(u[1], v[1]);              // v1 = u1^2
     fpadd751(v[0], v[1], t0);               // t0 = v0+v1
     fpinv751_mont_bingcd(t0);               // Fp inversion with binary Euclid
@@ -937,9 +1159,8 @@ bool is_cube_Fp2(f2elm_t u, PCurveIsogenyStruct CurveIsogeny)
         cube_Fp2_cycl(v, one);
     }
 
-	fp2correction751(v);
-
-	if (fpequal751_non_constant_time(v[0], one) == true && fpequal751_non_constant_time(v[1], zero) == true) {  // v == 1?
+    fp2correction751(v);
+    if (fpequal751_non_constant_time(v[0], one) == true && fpequal751_non_constant_time(v[1], zero) == true) {  // v == 1?
         return true;
     } else {
         return false;
@@ -983,100 +1204,111 @@ void multiply(const digit_t* a, const digit_t* b, digit_t* c, const unsigned int
 }
 
 
+void Montgomery_neg(digit_t* a, digit_t* order)
+{ // Modular negation, a = -a mod p751.
+  // Input/output: a in [0, 2*p751-1] 
+    unsigned int i, borrow = 0;
+    
+    for (i = 0; i < NWORDS_ORDER; i++) {
+        SUBC(borrow, order[i], a[i], borrow, a[i]); 
+    }
+}
+
+
 void Montgomery_multiply_mod_order(const digit_t* ma, const digit_t* mb, digit_t* mc, const digit_t* order, const digit_t* Montgomery_rprime)
 { // Montgomery multiplication modulo the group order, mc = ma*mb*r' mod order, where ma,mb,mc in [0, order-1].
   // ma, mb and mc are assumed to be in Montgomery representation.
   // The Montgomery constant r' = -r^(-1) mod 2^(log_2(r)) is the value "Montgomery_rprime", where r is the order.   
-	unsigned int i, cout = 0, bout = 0;
-	digit_t mask, P[2*NWORDS_ORDER], Q[2*NWORDS_ORDER], temp[2*NWORDS_ORDER];
+    unsigned int i, cout = 0, bout = 0;
+    digit_t mask, P[2*NWORDS_ORDER], Q[2*NWORDS_ORDER], temp[2*NWORDS_ORDER];
 
-	multiply(ma, mb, P, NWORDS_ORDER);                 // P = ma * mb
-	multiply(P, Montgomery_rprime, Q, NWORDS_ORDER);   // Q = P * r' mod 2^(log_2(r))
-	multiply(Q, order, temp, NWORDS_ORDER);            // temp = Q * r
-	cout = mp_add(P, temp, temp, 2*NWORDS_ORDER);      // (cout, temp) = P + Q * r     
+    multiply(ma, mb, P, NWORDS_ORDER);                 // P = ma * mb
+    multiply(P, Montgomery_rprime, Q, NWORDS_ORDER);   // Q = P * r' mod 2^(log_2(r))
+    multiply(Q, order, temp, NWORDS_ORDER);            // temp = Q * r
+    cout = mp_add(P, temp, temp, 2*NWORDS_ORDER);      // (cout, temp) = P + Q * r     
 
-	for (i = 0; i < NWORDS_ORDER; i++) {               // (cout, mc) = (P + Q * r)/2^(log_2(r))
-		mc[i] = temp[NWORDS_ORDER+i];
-	}
+    for (i = 0; i < NWORDS_ORDER; i++) {               // (cout, mc) = (P + Q * r)/2^(log_2(r))
+        mc[i] = temp[NWORDS_ORDER+i];
+    }
 
-	// Final, constant-time subtraction     
-	bout = mp_sub(mc, order, mc, NWORDS_ORDER);        // (cout, mc) = (cout, mc) - r
-	mask = (digit_t)cout - (digit_t)bout;              // if (cout, mc) >= 0 then mask = 0x00..0, else if (cout, mc) < 0 then mask = 0xFF..F
+    // Final, constant-time subtraction     
+    bout = mp_sub(mc, order, mc, NWORDS_ORDER);        // (cout, mc) = (cout, mc) - r
+    mask = (digit_t)cout - (digit_t)bout;              // if (cout, mc) >= 0 then mask = 0x00..0, else if (cout, mc) < 0 then mask = 0xFF..F
 
-	for (i = 0; i < NWORDS_ORDER; i++) {               // temp = mask & r
-		temp[i] = (order[i] & mask);
-	}
-	mp_add(mc, temp, mc, NWORDS_ORDER);                //  mc = mc + (mask & r)
+    for (i = 0; i < NWORDS_ORDER; i++) {               // temp = mask & r
+        temp[i] = (order[i] & mask);
+    }
+    mp_add(mc, temp, mc, NWORDS_ORDER);                //  mc = mc + (mask & r)
 }
 
 
 void Montgomery_inversion_mod_order(const digit_t* ma, digit_t* mc, const digit_t* order, const digit_t* Montgomery_rprime)
 { // (Non-constant time) Montgomery inversion modulo the curve order using a^(-1) = a^(order-2) mod order
   // This function uses the sliding-window method.
-	sdigit_t i = 384;
-	unsigned int j, nwords = NWORDS_ORDER, nbytes = (unsigned int)i/8;
-	digit_t temp, bit = 0, count, mod2, k_EXPON = 5;       // Fixing parameter k to 5 for the sliding windows method
-	digit_t modulus2[NWORDS_ORDER] = {0}, npoints = 16;
-	digit_t input_a[NWORDS_ORDER];
-	digit_t table[16][NWORDS_ORDER];                       // Fixing the number of precomputed elements to 16 (assuming k = 5)
-	digit_t mask = (digit_t)1 << (sizeof(digit_t)*8 - 1);  // 0x800...000
-	digit_t mask2 = ~((digit_t)(-1) >> k_EXPON);           // 0xF800...000, assuming k = 5
+    sdigit_t i = 384;
+    unsigned int j, nwords = NWORDS_ORDER, nbytes = (unsigned int)i/8;
+    digit_t temp, bit = 0, count, mod2, k_EXPON = 5;       // Fixing parameter k to 5 for the sliding windows method
+    digit_t modulus2[NWORDS_ORDER] = {0}, npoints = 16;
+    digit_t input_a[NWORDS_ORDER];
+    digit_t table[16][NWORDS_ORDER];                       // Fixing the number of precomputed elements to 16 (assuming k = 5)
+    digit_t mask = (digit_t)1 << (sizeof(digit_t)*8 - 1);  // 0x800...000
+    digit_t mask2 = ~((digit_t)(-1) >> k_EXPON);           // 0xF800...000, assuming k = 5
 
-	// SECURITY NOTE: this function does not run in constant time.
+    // SECURITY NOTE: this function does not run in constant time.
 
-	modulus2[0] = 2;
-	mp_sub(order, modulus2, modulus2, nwords);             // modulus-2
+    modulus2[0] = 2;
+    mp_sub(order, modulus2, modulus2, nwords);             // modulus-2
 
-	// Precomputation stage
-	memmove((unsigned char*)&table[0], (unsigned char*)ma, nbytes);                               // table[0] = ma 
-	Montgomery_multiply_mod_order(ma, ma, input_a, order, Montgomery_rprime);                     // ma^2
-	for (j = 0; j < npoints - 1; j++) {
-		Montgomery_multiply_mod_order(table[j], input_a, table[j+1], order, Montgomery_rprime);   // table[j+1] = table[j] * ma^2
-	}
+    // Precomputation stage
+    memmove((unsigned char*)&table[0], (unsigned char*)ma, nbytes);                               // table[0] = ma 
+    Montgomery_multiply_mod_order(ma, ma, input_a, order, Montgomery_rprime);                     // ma^2
+    for (j = 0; j < npoints - 1; j++) {
+            Montgomery_multiply_mod_order(table[j], input_a, table[j+1], order, Montgomery_rprime);   // table[j+1] = table[j] * ma^2
+    }
 
-	while (bit != 1) {                                     // Shift (modulus-2) to the left until getting first bit 1
-		i--;
-		temp = 0;
-		for (j = 0; j < nwords; j++) {
-			bit = (modulus2[j] & mask) >> (sizeof(digit_t)*8 - 1);
-			modulus2[j] = (modulus2[j] << 1) | temp;
-			temp = bit;
-		}
-	}
+    while (bit != 1) {                                     // Shift (modulus-2) to the left until getting first bit 1
+            i--;
+            temp = 0;
+            for (j = 0; j < nwords; j++) {
+                    bit = (modulus2[j] & mask) >> (sizeof(digit_t)*8 - 1);
+                    modulus2[j] = (modulus2[j] << 1) | temp;
+                    temp = bit;
+            }
+    }
 
-	// Evaluation stage
-	memmove((unsigned char*)mc, (unsigned char*)ma, nbytes);
-	bit = (modulus2[nwords-1] & mask) >> (sizeof(digit_t)*8 - 1);
-	while (i > 0) {
-		if (bit == 0) {                                                            // Square accumulated value because bit = 0 and shift (modulus-2) one bit to the left
-			Montgomery_multiply_mod_order(mc, mc, mc, order, Montgomery_rprime);   // mc = mc^2
-			i--;
-			for (j = (nwords - 1); j > 0; j--) {
-				SHIFTL(modulus2[j], modulus2[j-1], 1, modulus2[j], RADIX);
-			}
-			modulus2[0] = modulus2[0] << 1;
-		} else {                                                                   // "temp" will store the longest odd bitstring with "count" bits s.t. temp <= 2^k - 1 
-			count = k_EXPON;
-			temp = (modulus2[nwords-1] & mask2) >> (sizeof(digit_t)*8 - k_EXPON);  // Extracting next k bits to the left
-			mod2 = temp & 1;
-			while (mod2 == 0) {                                                    // if even then shift to the right and adjust count
-				temp = (temp >> 1);
-				mod2 = temp & 1;
-				count--;
-			}
-			for (j = 0; j < count; j++) {                                          // mc = mc^count
-				Montgomery_multiply_mod_order(mc, mc, mc, order, Montgomery_rprime);
-			}
-			Montgomery_multiply_mod_order(mc, table[(temp-1) >> 1], mc, order, Montgomery_rprime);   // mc = mc * table[(temp-1)/2] 
-			i = i - count;
+    // Evaluation stage
+    memmove((unsigned char*)mc, (unsigned char*)ma, nbytes);
+    bit = (modulus2[nwords-1] & mask) >> (sizeof(digit_t)*8 - 1);
+    while (i > 0) {
+        if (bit == 0) {                                                            // Square accumulated value because bit = 0 and shift (modulus-2) one bit to the left
+            Montgomery_multiply_mod_order(mc, mc, mc, order, Montgomery_rprime);   // mc = mc^2
+            i--;
+            for (j = (nwords - 1); j > 0; j--) {
+                SHIFTL(modulus2[j], modulus2[j-1], 1, modulus2[j], RADIX);
+            }
+            modulus2[0] = modulus2[0] << 1;
+        } else {                                                                   // "temp" will store the longest odd bitstring with "count" bits s.t. temp <= 2^k - 1 
+            count = k_EXPON;
+            temp = (modulus2[nwords-1] & mask2) >> (sizeof(digit_t)*8 - k_EXPON);  // Extracting next k bits to the left
+            mod2 = temp & 1;
+            while (mod2 == 0) {                                                    // if even then shift to the right and adjust count
+                temp = (temp >> 1);
+                mod2 = temp & 1;
+                count--;
+            }
+            for (j = 0; j < count; j++) {                                          // mc = mc^count
+                Montgomery_multiply_mod_order(mc, mc, mc, order, Montgomery_rprime);
+            }
+            Montgomery_multiply_mod_order(mc, table[(temp-1) >> 1], mc, order, Montgomery_rprime);   // mc = mc * table[(temp-1)/2] 
+            i = i - count;
 
-			for (j = (nwords-1); j > 0; j--) {                                     // Shift (modulus-2) "count" bits to the left
-				SHIFTL(modulus2[j], modulus2[j-1], count, modulus2[j], RADIX);
-			}
-			modulus2[0] = modulus2[0] << count;
-		}
-		bit = (modulus2[nwords-1] & mask) >> (sizeof(digit_t)*8 - 1);
-	}
+            for (j = (nwords-1); j > 0; j--) {                                     // Shift (modulus-2) "count" bits to the left
+                SHIFTL(modulus2[j], modulus2[j-1], count, modulus2[j], RADIX);
+            }
+            modulus2[0] = modulus2[0] << count;
+        }
+        bit = (modulus2[nwords-1] & mask) >> (sizeof(digit_t)*8 - 1);
+    }
 }
 
 
@@ -1116,83 +1348,82 @@ static __inline unsigned int is_lt_mod_order(const digit_t* x, const digit_t* y)
 
 static __inline void Montgomery_inversion_mod_order_bingcd_partial(const digit_t* a, digit_t* x1, unsigned int* k, const digit_t* order)
 { // Partial Montgomery inversion modulo order.
-	digit_t u[NWORDS_ORDER], v[NWORDS_ORDER], x2[NWORDS_ORDER] = {0};
-	unsigned int cwords;  // number of words necessary for x1, x2
+    digit_t u[NWORDS_ORDER], v[NWORDS_ORDER], x2[NWORDS_ORDER] = {0};
+    unsigned int cwords;  // number of words necessary for x1, x2
 
-	copy_words(a, u, NWORDS_ORDER);
-	copy_words(order, v, NWORDS_ORDER);
-	copy_words(x2, x1, NWORDS_ORDER);
-	x1[0] = 1;
-	*k = 0;
+    copy_words(a, u, NWORDS_ORDER);
+    copy_words(order, v, NWORDS_ORDER);
+    copy_words(x2, x1, NWORDS_ORDER);
+    x1[0] = 1;
+    *k = 0;
 
-	while (!is_zero_mod_order(v)) {
-		cwords = ((*k + 1) / RADIX) + 1;
-		if ((cwords < NWORDS_ORDER)) {
-			if (is_even_mod_order(v)) {
-				mp_shiftr1(v, NWORDS_ORDER);
-				mp_shiftl1(x1, cwords);
-			} else if (is_even_mod_order(u)) {
-				mp_shiftr1(u, NWORDS_ORDER);
-				mp_shiftl1(x2, cwords);
-			} else if (!is_lt_mod_order(v, u)) {
-				mp_sub(v, u, v, NWORDS_ORDER);
-				mp_shiftr1(v, NWORDS_ORDER);
-				mp_add(x1, x2, x2, cwords);
-				mp_shiftl1(x1, cwords);
-			} else {
-				mp_sub(u, v, u, NWORDS_ORDER);
-				mp_shiftr1(u, NWORDS_ORDER);
-				mp_add(x1, x2, x1, cwords);
-				mp_shiftl1(x2, cwords);
-			}
-		} else {
-			if (is_even_mod_order(v)) {
-				mp_shiftr1(v, NWORDS_ORDER);
-				mp_shiftl1(x1, NWORDS_ORDER);
-			} else if (is_even_mod_order(u)) {
-				mp_shiftr1(u, NWORDS_ORDER);
-				mp_shiftl1(x2, NWORDS_ORDER);
-			} else if (!is_lt_mod_order(v, u)) {
-				mp_sub(v, u, v, NWORDS_ORDER);
-				mp_shiftr1(v, NWORDS_ORDER);
-				mp_add(x1, x2, x2, NWORDS_ORDER);
-				mp_shiftl1(x1, NWORDS_ORDER);
-			} else {
-				mp_sub(u, v, u, NWORDS_ORDER);
-				mp_shiftr1(u, NWORDS_ORDER);
-				mp_add(x1, x2, x1, NWORDS_ORDER);
-				mp_shiftl1(x2, NWORDS_ORDER);
-			}
-		}
-		*k += 1;
-	}
+    while (!is_zero_mod_order(v)) {
+        cwords = ((*k + 1) / RADIX) + 1;
+        if ((cwords < NWORDS_ORDER)) {
+            if (is_even_mod_order(v)) {
+                mp_shiftr1(v, NWORDS_ORDER);
+                mp_shiftl1(x1, cwords);
+            } else if (is_even_mod_order(u)) {
+                mp_shiftr1(u, NWORDS_ORDER);
+                mp_shiftl1(x2, cwords);
+            } else if (!is_lt_mod_order(v, u)) {
+                mp_sub(v, u, v, NWORDS_ORDER);
+                mp_shiftr1(v, NWORDS_ORDER);
+                mp_add(x1, x2, x2, cwords);
+                mp_shiftl1(x1, cwords);
+            } else {
+                mp_sub(u, v, u, NWORDS_ORDER);
+                mp_shiftr1(u, NWORDS_ORDER);
+                mp_add(x1, x2, x1, cwords);
+                mp_shiftl1(x2, cwords);
+            }
+        } else {
+            if (is_even_mod_order(v)) {
+                mp_shiftr1(v, NWORDS_ORDER);
+                mp_shiftl1(x1, NWORDS_ORDER);
+            } else if (is_even_mod_order(u)) {
+                mp_shiftr1(u, NWORDS_ORDER);
+                mp_shiftl1(x2, NWORDS_ORDER);
+            } else if (!is_lt_mod_order(v, u)) {
+                mp_sub(v, u, v, NWORDS_ORDER);
+                mp_shiftr1(v, NWORDS_ORDER);
+                mp_add(x1, x2, x2, NWORDS_ORDER);
+                mp_shiftl1(x1, NWORDS_ORDER);
+            } else {
+                mp_sub(u, v, u, NWORDS_ORDER);
+                mp_shiftr1(u, NWORDS_ORDER);
+                mp_add(x1, x2, x1, NWORDS_ORDER);
+                mp_shiftl1(x2, NWORDS_ORDER);
+            }
+        }
+        *k += 1;
+    }
 
-	if (is_lt_mod_order(order, x1)) {
-		mp_sub(x1, order, x1, NWORDS_ORDER);
-	}
+    if (is_lt_mod_order(order, x1)) {
+        mp_sub(x1, order, x1, NWORDS_ORDER);
+    }
 }
 
 
 void Montgomery_inversion_mod_order_bingcd(const digit_t* a, digit_t* c, const digit_t* order, const digit_t* Montgomery_rprime, const digit_t* Montgomery_Rprime)
 {// Montgomery inversion modulo order, a = a^(-1)*R mod order.
-	digit_t x[NWORDS_ORDER], t[NWORDS_ORDER];
-	unsigned int k;
+    digit_t x[NWORDS_ORDER], t[NWORDS_ORDER];
+    unsigned int k;
 
-	Montgomery_inversion_mod_order_bingcd_partial(a, x, &k, order);
-	if (k < 384) {
-		Montgomery_multiply_mod_order(x, Montgomery_Rprime, x, order, Montgomery_rprime);
-		k += 384;
-	}
-	Montgomery_multiply_mod_order(x, Montgomery_Rprime, x, order, Montgomery_rprime);
-	power2_setup(t, 2*384 - k, NWORDS_ORDER);
-	Montgomery_multiply_mod_order(x, t, c, order, Montgomery_rprime);
+    Montgomery_inversion_mod_order_bingcd_partial(a, x, &k, order);
+    if (k < 384) {
+        Montgomery_multiply_mod_order(x, Montgomery_Rprime, x, order, Montgomery_rprime);
+        k += 384;
+    }
+    Montgomery_multiply_mod_order(x, Montgomery_Rprime, x, order, Montgomery_rprime);
+    power2_setup(t, 2*384 - k, NWORDS_ORDER);
+    Montgomery_multiply_mod_order(x, t, c, order, Montgomery_rprime);
 }
 
 
 void to_Montgomery_mod_order(const digit_t* a, digit_t* mc, const digit_t* order, const digit_t* Montgomery_rprime, const digit_t* Montgomery_Rprime)
 { // Conversion of elements in Z_r to Montgomery representation, where the order r is up to 384 bits.
-
-	Montgomery_multiply_mod_order(a, Montgomery_Rprime, mc, order, Montgomery_rprime);
+    Montgomery_multiply_mod_order(a, Montgomery_Rprime, mc, order, Montgomery_rprime);
 }
 
 
@@ -1209,44 +1440,44 @@ void inv_mod_orderA(const digit_t* a, digit_t* c)
 { // Inversion modulo an even integer of the form 2^m.
   // Algorithm 3: Explicit Quadratic Modular inverse modulo 2^m from Dumas '12: http://arxiv.org/pdf/1209.6626.pdf
   // NOTE: This function is hardwired for the current parameters using 2^372.
-	unsigned int i, f, s = 0;
-	digit_t am1[NWORDS_ORDER] = {0};
-	digit_t tmp1[NWORDS_ORDER] = {0};
-	digit_t tmp2[2*NWORDS_ORDER] = {0};
-	digit_t one[NWORDS_ORDER] = {0};
-	digit_t order[NWORDS_ORDER] = {0};
+    unsigned int i, f, s = 0;
+    digit_t am1[NWORDS_ORDER] = {0};
+    digit_t tmp1[NWORDS_ORDER] = {0};
+    digit_t tmp2[2*NWORDS_ORDER] = {0};
+    digit_t one[NWORDS_ORDER] = {0};
+    digit_t order[NWORDS_ORDER] = {0};
     digit_t mask = (digit_t)(-1) >> 12;
-	bool equal = true;
+    bool equal = true;
 
-	order[NWORDS_ORDER-1] = (digit_t)1 << (sizeof(digit_t)*8 - 12);  // Load most significant digit of Alice's order
-	one[0] = 1;
+    order[NWORDS_ORDER-1] = (digit_t)1 << (sizeof(digit_t)*8 - 12);  // Load most significant digit of Alice's order
+    one[0] = 1;
 
-	for (i = 0; i < NWORDS_ORDER; i++) {
-		if (a[i] != one[0]) equal = false;
-	}
-	if (equal) {
-		copy_words(a, c, NWORDS_ORDER);
-	} else {
-		mp_sub(a, one, am1, NWORDS_ORDER);               // am1 = a-1
-		mp_sub(order, am1, c, NWORDS_ORDER);
-		mp_add(c, one, c, NWORDS_ORDER);                 // c = 2^m - a + 2
+    for (i = 0; i < NWORDS_ORDER; i++) {
+        if (a[i] != one[0]) equal = false;
+    }
+    if (equal) {
+        copy_words(a, c, NWORDS_ORDER);
+    } else {
+        mp_sub(a, one, am1, NWORDS_ORDER);               // am1 = a-1
+        mp_sub(order, am1, c, NWORDS_ORDER);
+        mp_add(c, one, c, NWORDS_ORDER);                 // c = 2^m - a + 2
 
-		copy_words(am1, tmp1, NWORDS_ORDER);
-		while ((tmp1[0] & (digit_t)1) == 0) {
-			s += 1;
-			mp_shiftr1(tmp1, NWORDS_ORDER);
-		}
+        copy_words(am1, tmp1, NWORDS_ORDER);
+        while ((tmp1[0] & (digit_t)1) == 0) {
+            s += 1;
+            mp_shiftr1(tmp1, NWORDS_ORDER);
+        }
 
-		f = 372 / s;
-		for (i = 1; i < f; i <<= 1) {
-			multiply(am1, am1, tmp2, NWORDS_ORDER);            // tmp2 = am1^2  
-			copy_words(tmp2, am1, NWORDS_ORDER);
-			am1[NWORDS_ORDER-1] &= mask;                       // am1 = tmp2 mod 2^e
-			mp_add(am1, one, tmp1, NWORDS_ORDER);              // tmp1 = am1 + 1
-			tmp1[NWORDS_ORDER-1] &= mask;                      // mod 2^e
-			multiply(c, tmp1, tmp2, NWORDS_ORDER);             // c = c*tmp1
-			copy_words(tmp2, c, NWORDS_ORDER);
-			c[NWORDS_ORDER-1] &= mask;                         // mod 2^e
-		}
-	}
+        f = 372 / s;
+        for (i = 1; i < f; i <<= 1) {
+            multiply(am1, am1, tmp2, NWORDS_ORDER);            // tmp2 = am1^2  
+            copy_words(tmp2, am1, NWORDS_ORDER);
+            am1[NWORDS_ORDER-1] &= mask;                       // am1 = tmp2 mod 2^e
+            mp_add(am1, one, tmp1, NWORDS_ORDER);              // tmp1 = am1 + 1
+            tmp1[NWORDS_ORDER-1] &= mask;                      // mod 2^e
+            multiply(c, tmp1, tmp2, NWORDS_ORDER);             // c = c*tmp1
+            copy_words(tmp2, c, NWORDS_ORDER);
+            c[NWORDS_ORDER-1] &= mask;                         // mod 2^e
+        }
+    }
 }

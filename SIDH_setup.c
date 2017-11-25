@@ -7,16 +7,24 @@
 *
 * Abstract: functions for initialization and getting randomness
 *
+* 
+* Modified by Geovandro C. C. F. Pereira
 *********************************************************************************************/ 
 
 #include "SIDH_internal.h"
-#include <malloc.h>
+#include <stdlib.h>
+
+// Discrete log bases precomputed for the 2- and 3-torsion
+
+extern f2elm_t **ph2_T;
+extern f2elm_t **ph3_T;
 
 
 CRYPTO_STATUS SIDH_curve_initialize(PCurveIsogenyStruct pCurveIsogeny, RandomBytes RandomBytesFunction, PCurveIsogenyStaticData pCurveIsogenyData)
 { // Initialize curve isogeny structure pCurveIsogeny with static data extracted from pCurveIsogenyData.
   // This needs to be called after allocating memory for "pCurveIsogeny" using SIDH_curve_allocate().
     unsigned int i, pwords, owords;
+    f2elm_t invg_A, invg_B;
 
     if (is_CurveIsogenyStruct_null(pCurveIsogeny)) {
         return CRYPTO_ERROR_INVALID_PARAMETER;
@@ -41,12 +49,21 @@ CRYPTO_STATUS SIDH_curve_initialize(PCurveIsogenyStruct pCurveIsogeny, RandomByt
     copy_words((digit_t*)pCurveIsogenyData->C, pCurveIsogeny->C, pwords);
     copy_words((digit_t*)pCurveIsogenyData->Aorder, pCurveIsogeny->Aorder, owords);
     copy_words((digit_t*)pCurveIsogenyData->Border, pCurveIsogeny->Border, owords);
-    copy_words((digit_t*)pCurveIsogenyData->PA, pCurveIsogeny->PA, 2*pwords);
+    copy_words((digit_t*)pCurveIsogenyData->PA, pCurveIsogeny->PA, 4*pwords);
     copy_words((digit_t*)pCurveIsogenyData->PB, pCurveIsogeny->PB, 2*pwords);
     copy_words((digit_t*)pCurveIsogenyData->BigMont_order, pCurveIsogeny->BigMont_order, pwords);
     copy_words((digit_t*)pCurveIsogenyData->Montgomery_R2, pCurveIsogeny->Montgomery_R2, pwords);
     copy_words((digit_t*)pCurveIsogenyData->Montgomery_pp, pCurveIsogeny->Montgomery_pp, pwords);
     copy_words((digit_t*)pCurveIsogenyData->Montgomery_one, pCurveIsogeny->Montgomery_one, pwords);
+    copy_words((digit_t*)pCurveIsogenyData->epq_A, pCurveIsogeny->epq_A, 2*pwords);
+    copy_words((digit_t*)pCurveIsogenyData->epq_B, pCurveIsogeny->epq_B, 2*pwords);
+    
+    to_fp2mont((felm_t*)pCurveIsogeny->epq_A,invg_A);
+    to_fp2mont((felm_t*)pCurveIsogeny->epq_B,invg_B);
+    fp2_conj(invg_A, invg_A);
+    fp2_conj(invg_B, invg_B);
+    Precomp(invg_A, ph2_T, 2, pCurveIsogeny->oAbits, pCurveIsogeny);
+    Precomp(invg_B, ph3_T, 3, pCurveIsogeny->eB, pCurveIsogeny);
     
     return CRYPTO_SUCCESS;
 }
@@ -65,12 +82,24 @@ PCurveIsogenyStruct SIDH_curve_allocate(PCurveIsogenyStaticData CurveData)
     pCurveIsogeny->C = (digit_t*)calloc(1, pbytes);
     pCurveIsogeny->Aorder = (digit_t*)calloc(1, obytes);
     pCurveIsogeny->Border = (digit_t*)calloc(1, obytes);
-    pCurveIsogeny->PA = (digit_t*)calloc(1, 2*pbytes);
+    pCurveIsogeny->PA = (digit_t*)calloc(1, 4*pbytes);
     pCurveIsogeny->PB = (digit_t*)calloc(1, 2*pbytes);
     pCurveIsogeny->BigMont_order = (digit_t*)calloc(1, pbytes);
     pCurveIsogeny->Montgomery_R2 = (digit_t*)calloc(1, pbytes);
     pCurveIsogeny->Montgomery_pp = (digit_t*)calloc(1, pbytes);
     pCurveIsogeny->Montgomery_one = (digit_t*)calloc(1, pbytes);
+    pCurveIsogeny->epq_A = (digit_t*)calloc(1, 2*pbytes);
+    pCurveIsogeny->epq_B = (digit_t*)calloc(1, 2*pbytes);
+    
+    ph2_T = (f2elm_t**)calloc(372, sizeof(f2elm_t*));
+    for (int i = 0; i < 372; i++) {
+        ph2_T[i] = (f2elm_t*)calloc(2, sizeof(f2elm_t));
+    }    
+    
+    ph3_T = (f2elm_t**)calloc(239, sizeof(f2elm_t*));
+    for (int i = 0; i < 239; i++) {
+        ph3_T[i] = (f2elm_t*)calloc(3, sizeof(f2elm_t));
+    }
 
     if (is_CurveIsogenyStruct_null(pCurveIsogeny)) {
         return NULL;

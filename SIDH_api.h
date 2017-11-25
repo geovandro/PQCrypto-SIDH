@@ -67,12 +67,26 @@ CRYPTO_STATUS EphemeralSecretAgreement_B(const unsigned char* pPrivateKeyB, cons
 // CurveIsogeny must be set up in advance using SIDH_curve_initialize(). 
 void PublicKeyCompression_A(const unsigned char* PublicKeyA, unsigned char* CompressedPKA, PCurveIsogenyStruct CurveIsogeny);
 
+// Alice's public key fast compression
+// It produces a compressed output that consists of three elements in Z_orderB and one field element
+// Input : Alice's public key PublicKeyA, which consists of 3 elements in GF(p751^2).
+// Output: a compressed value CompressedPKA that consists of three elements in Z_orderB and one element in GF(p751^2). 
+// CurveIsogeny must be set up in advance using SIDH_curve_initialize(). 
+void PublicKeyCompression_A_fast(const unsigned char* PublicKeyA, unsigned char* CompressedPKA, PCurveIsogenyStruct CurveIsogeny);
+
 // Alice's public key value decompression computed by Bob
 // Inputs: Bob's private key SecretKeyB, and
 //         Alice's compressed public key data CompressedPKA, which consists of three elements in Z_orderB and one element in GF(p751^2),
 // Output: a point point_R in coordinates (X:Z) and the curve parameter param_A in GF(p751^2). Outputs are stored in Montgomery representation.
 // CurveIsogeny must be set up in advance using SIDH_curve_initialize().                                                                    
 void PublicKeyADecompression_B(const unsigned char* SecretKeyB, const unsigned char* CompressedPKA, unsigned char* point_R, unsigned char* param_A, PCurveIsogenyStruct CurveIsogeny);
+
+// Alice's public key value fast decompression computed by Bob
+// Inputs: Bob's private key SecretKeyB, and
+//         Alice's compressed public key data CompressedPKA, which consists of three elements in Z_orderB and one element in GF(p751^2),
+// Output: a point point_R in coordinates (X:Z) and the curve parameter param_A in GF(p751^2). Outputs are stored in Montgomery representation.
+// CurveIsogeny must be set up in advance using SIDH_curve_initialize().                                                                    
+void PublicKeyADecompression_B_fast(const unsigned char* SecretKeyB, const unsigned char* CompressedPKA, unsigned char* point_R, unsigned char* param_A, PCurveIsogenyStruct CurveIsogeny);
 
 // Alice's ephemeral shared secret computation
 // It produces a shared secret key SharedSecretA using her secret key PrivateKeyA and Bob's public key PublicKeyB
@@ -89,12 +103,27 @@ CRYPTO_STATUS EphemeralSecretAgreement_Compression_A(const unsigned char* Privat
 // CurveIsogeny must be set up in advance using SIDH_curve_initialize().       
 void PublicKeyCompression_B(const unsigned char* PublicKeyB, unsigned char* CompressedPKB, PCurveIsogenyStruct CurveIsogeny);
 
+// Faster Bob's public key compression
+// It produces a compressed output that consists of three elements in Z_orderA and one field element
+// Input : Bob's public key PublicKeyB, which consists of 3 elements in GF(p751^2).
+// Output: a compressed value CompressedPKB that consists of three elements in Z_orderA and one element in GF(p751^2). 
+// CurveIsogeny must be set up in advance using SIDH_curve_initialize().       
+void PublicKeyCompression_B_fast(const unsigned char* PublicKeyB, unsigned char* CompressedPKB, PCurveIsogenyStruct CurveIsogeny);
+
+
 // Bob's public key value decompression computed by Alice
 // Inputs: Alice's private key SecretKeyA, and
 //         Bob's compressed public key data CompressedPKB, which consists of three elements in Z_orderA and one element in GF(p751^2).
 // Output: a point point_R in coordinates (X:Z) and the curve parameter param_A in GF(p751^2). Outputs are stored in Montgomery representation.
 // CurveIsogeny must be set up in advance using SIDH_curve_initialize().            
 void PublicKeyBDecompression_A(const unsigned char* SecretKeyA, const unsigned char* CompressedPKB, unsigned char* point_R, unsigned char* param_A, PCurveIsogenyStruct CurveIsogeny);
+
+// Fast Bob's public key value decompression computed by Alice
+// Inputs: Alice's private key SecretKeyA, and
+//         Bob's compressed public key data CompressedPKB, which consists of three elements in Z_orderA and one element in GF(p751^2).
+// Output: a point point_R in coordinates (X:Z) and the curve parameter param_A in GF(p751^2). Outputs are stored in Montgomery representation.
+// CurveIsogeny must be set up in advance using SIDH_curve_initialize().            
+void PublicKeyBDecompression_A_fast(const unsigned char* SecretKeyA, const unsigned char* CompressedPKB, unsigned char* point_R, unsigned char* param_A, PCurveIsogenyStruct CurveIsogeny);
 
 // Bob's ephemeral shared secret computation
 // It produces a shared secret key SharedSecretB using his secret key PrivateKeyB and Alice's decompressed data point_R and param_A

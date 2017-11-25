@@ -7,6 +7,7 @@
 *
 * Abstract: internal header file
 *
+* Modified by Geovandro C. C. F. Pereira
 *********************************************************************************************/  
 
 #ifndef __SIDH_INTERNAL_H__
@@ -17,10 +18,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-
-#include "SIDH_api.h"   
     
+
+#include "SIDH_api.h"
+
 
 // Basic constants
 
@@ -29,7 +30,7 @@ extern "C" {
 #define MAX_INT_POINTS_ALICE  8      
 // Fixed parameters for isogeny tree computation    
 #define MAX_INT_POINTS_BOB    10 
-#define MAX_Alice             185   
+#define MAX_Alice             186
 #define MAX_Bob               239
    
 
@@ -68,6 +69,10 @@ typedef point_basefield_proj point_basefield_proj_t[1];
 // Macro to avoid compiler warnings when detecting unreferenced parameters
 #define UNREFERENCED_PARAMETER(PAR) (PAR)
 
+void print_fp(const felm_t a, int isMonty);
+
+// prints a discrete log value
+void print_dl(const digit_t *a);
 
 /********************** Constant-time unsigned comparisons ***********************/
 
@@ -186,7 +191,7 @@ static __inline unsigned int is_digit_lessthan_ct(digit_t x, digit_t y)
       MUL128(multiplier, multiplicand, product);                       \
       ADC128(addend, product, carry, result); }   
 
-#elif ((TARGET == TARGET_AMD64 || TARGET == TARGET_ARM64) && OS_TARGET == OS_LINUX)
+#elif ((TARGET == TARGET_AMD64 || TARGET == TARGET_ARM64) && (OS_TARGET == OS_LINUX))
 
 // Digit multiplication
 #define MUL(multiplier, multiplicand, hi, lo)                                                     \
@@ -263,6 +268,9 @@ void mp_mul_comba(const digit_t* a, const digit_t* b, digit_t* c, const unsigned
 
 void multiply(const digit_t* a, const digit_t* b, digit_t* c, const unsigned int nwords); 
 
+// Montgomery negation a = -a mod order
+void Montgomery_neg(digit_t* a, digit_t* order);
+
 // Montgomery multiplication modulo the group order, mc = ma*mb*r' mod order, where ma,mb,mc in [0, order-1]
 void Montgomery_multiply_mod_order(const digit_t* ma, const digit_t* mb, digit_t* mc, const digit_t* order, const digit_t* Montgomery_rprime);
 
@@ -325,6 +333,9 @@ void to_mont(const felm_t a, felm_t mc);
 // Conversion from Montgomery representation to standard representation
 void from_mont(const felm_t ma, felm_t c);
 
+// Given a number D in base base, return r = D in base 10
+void from_base(int *D, digit_t *r, int Dlen, int base);
+
 // Field inversion, a = a^-1 in GF(p751)
 void fpinv751_mont(felm_t a);
 
@@ -351,11 +362,17 @@ extern void fp2add751(const f2elm_t a, const f2elm_t b, f2elm_t c);
 // GF(p751^2) subtraction, c = a-b in GF(p751^2)
 extern void fp2sub751(const f2elm_t a, const f2elm_t b, f2elm_t c); 
 
+// Computes c = 2^k*a
+void fp2shl751(const f2elm_t a, const int k, f2elm_t c);
+
 // GF(p751^2) division by two, c = a/2  in GF(p751^2) 
 void fp2div2_751(const f2elm_t a, f2elm_t c);
 
 // Modular correction, a = a in GF(p751^2)
 void fp2correction751(f2elm_t a);
+
+// Given v = a+b*i returns r = a - b*i
+void fp2_conj(const f2elm_t v, f2elm_t r);
             
 // GF(p751^2) squaring using Montgomery arithmetic, c = a^2 in GF(p751^2)
 void fp2sqr751_mont(const f2elm_t a, f2elm_t c);
@@ -374,6 +391,9 @@ void fp2inv751_mont(f2elm_t a);
 
 // GF(p751^2) inversion, a = (a0-i*a1)/(a0^2+a1^2), GF(p751) inversion done using the binary GCD 
 void fp2inv751_mont_bingcd(f2elm_t a);
+
+// Compute the square root s of a field element v in F_{p^2} and invert a field element z.
+void sqrtinv2(f2elm_t v, f2elm_t z, f2elm_t s, f2elm_t invz);
 
 // n-way Montgomery inversion
 void mont_n_way_inv(const f2elm_t* vec, const int n, f2elm_t* out);
@@ -395,6 +415,9 @@ void sqr_Fp2_cycl(f2elm_t a, const felm_t one);
 
 // Cyclotomic inversion, a^(p+1) = 1 => a^(-1) = a^p = a0 - i*a1
 extern void inv_Fp2_cycl(f2elm_t a);
+
+// Checks if a is a square in F_{p^2} and returns s = (a[0]^2 + a[1]^2)^{(p+1)/4}
+unsigned char is_sqr_fp2(const f2elm_t a, felm_t s);
 
 // Check if GF(p751^2) element is cube
 bool is_cube_Fp2(f2elm_t u, PCurveIsogenyStruct CurveIsogeny);
@@ -446,11 +469,14 @@ void xDBL_basefield(const point_basefield_proj_t P, point_basefield_proj_t Q);
 // Simultaneous doubling and differential addition over the base field.
 void xDBLADD_basefield(point_basefield_proj_t P, point_basefield_proj_t Q, const felm_t xPQ, const felm_t A24);
 
-// The Montgomery ladder
+// The Montgomery ladder for point abscissa x and curve coefficient A in Fp
 void ladder(const felm_t x, digit_t* m, point_basefield_proj_t P, point_basefield_proj_t Q, const felm_t A24, const unsigned int order_bits, const unsigned int order_fullbits, PCurveIsogenyStruct CurveIsogeny);
 
 // Computes key generation entirely in the base field
-CRYPTO_STATUS secret_pt(const point_basefield_t P, const digit_t* m, const unsigned int AliceOrBob, point_proj_t R, PCurveIsogenyStruct CurveIsogeny);
+CRYPTO_STATUS secret_pt_fp(const point_basefield_t P, const digit_t* m, const unsigned int AliceOrBob, point_proj_t R, PCurveIsogenyStruct CurveIsogeny);
+
+// Computes key generation on E(Fp2)
+CRYPTO_STATUS secret_pt(const point_t PA, const digit_t* m, point_proj_t R, PCurveIsogenyStruct CurveIsogeny);
 
 // Computes P+[m]Q via x-only arithmetic.
 CRYPTO_STATUS ladder_3_pt(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xPQ, const digit_t* m, const unsigned int AliceOrBob, point_proj_t W, const f2elm_t A, PCurveIsogenyStruct CurveIsogeny);
@@ -461,14 +487,17 @@ void get_4_isog(const point_proj_t P, f2elm_t A, f2elm_t C, f2elm_t* coeff);
 // Evaluates the isogeny at the point (X:Z) in the domain of the isogeny
 void eval_4_isog(point_proj_t P, f2elm_t* coeff);
 
-// Computes first 4-isogeny computed by Alice.
-void first_4_isog(point_proj_t P, const f2elm_t A, f2elm_t Aout, f2elm_t Cout, PCurveIsogenyStruct CurveIsogeny);
-
 // Tripling of a Montgomery point in projective coordinates (X:Z).
 void xTPL(const point_proj_t P, point_proj_t Q, const f2elm_t A24, const f2elm_t C24);
 
 // Computes [3^e](X:Z) on Montgomery curve with projective constant via e repeated triplings.
 void xTPLe(const point_proj_t P, point_proj_t Q, const f2elm_t A, const f2elm_t C, const int e);
+
+// Faster Tripling of a Montgomery point in projective coordinates (X:Z). Requires 5M + 6S + 9A in GF(p^2)
+void xTPL_fast(const point_proj_t P, point_proj_t Q, const f2elm_t A2);
+
+// Computation of [3^e](X:Z) on Montgomery curve with projective constant via e repeated triplings.
+void xTPLe_fast(point_proj_t P, point_proj_t Q, const f2elm_t A2, int e);
 
 // Computes [3^e](X:Z) on Montgomery curve with projective constant via e repeated triplings and collects a few intermediate multiples.    
 void xTPLe_collect(point_proj_t P, point_proj_t Q, f2elm_t A, f2elm_t C, unsigned int left_bound, const unsigned int right_bound, const unsigned int* col, point_proj_t* pts, unsigned int* pts_index, unsigned int *npts);
@@ -482,8 +511,11 @@ void eval_3_isog(const point_proj_t P, point_proj_t Q);
 // 3-way simultaneous inversion
 void inv_3_way(f2elm_t z1, f2elm_t z2, f2elm_t z3);
 
-// Computing the point D = (x(Q-P),z(Q-P))
-void distort_and_diff(const felm_t xP, point_proj_t d, PCurveIsogenyStruct CurveIsogeny);
+// Computing the point D = (x(Q-P),z(Q-P)) for x(P) and x(Q) in Fp
+void distort_and_diff_fp(const felm_t xP, point_proj_t d, PCurveIsogenyStruct CurveIsogeny);
+
+// Computing the point D = (x(Q-P),z(Q-P)) 
+void distort_and_diff(const f2elm_t xP, point_proj_t d, PCurveIsogenyStruct CurveIsogeny);
 
 // Given the x-coordinates of P, Q, and R, returns the value A corresponding to the Montgomery curve E_A: y^2=x^3+A*x^2+x such that R=Q-P on E_A.
 void get_A(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xR, f2elm_t A, PCurveIsogenyStruct CurveIsogeny);
@@ -491,16 +523,28 @@ void get_A(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xR, f2elm_t A, PCur
 /************ Functions for compression *************/
 
 // Produces points R1 and R2 as basis for E[2^372]
-void generate_2_torsion_basis(const f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny); 
+void generate_2_torsion_basis(const f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny);
+
+// Produces points S1 and S2 such that {3^eB*S1, 3^eB*S2} is a basis for E[2^372]
+void generate_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2, PCurveIsogenyStruct CurveIsogeny);
 
 // Produces points R1 and R2 as basis for E[3^239]
 void generate_3_torsion_basis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny);
 
-// 2-torsion Tate pairing
+// Produces points R1 and R2 as basis for E[3^239] faster 
+void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny);
+
+// Compute five 2^eA-torsion Tate pairings
 void Tate_pairings_2_torsion(const point_t R1, const point_t R2, const point_t P, const point_t Q, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny);
 
-// 3-torsion Tate pairing
+// Compute four 2^eA-torsion Tate pairings
+void Tate_4_pairings_2_torsion(const point_full_proj_t P, const point_full_proj_t Q, const point_t S1, const point_t S2, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny);
+
+// Compute five 3^eB-torsion Tate pairings
 void Tate_pairings_3_torsion(const point_t R1, const point_t R2, const point_t P, const point_t Q, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny);
+
+// Compute four 3^eB-torsion Tate pairings
+void Tate_4_pairings_3_torsion(const point_full_proj_t P, const point_full_proj_t Q, const point_full_proj_t R1, const point_full_proj_t R2, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny);
 
 // The Montgomery ladder, running in non constant-time
 void Mont_ladder(const f2elm_t x, const digit_t* m, point_proj_t P, point_proj_t Q, const f2elm_t A24, const unsigned int order_bits, const unsigned int order_fullbits, PCurveIsogenyStruct CurveIsogeny);
@@ -510,6 +554,9 @@ void ADD(const point_full_proj_t P, const f2elm_t QX, const f2elm_t QY, const f2
 
 // 2-torsion Pohlig-Hellman function
 void ph2(const point_t phiP, const point_t phiQ, const point_t PS, const point_t QS, const f2elm_t A, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, PCurveIsogenyStruct CurveIsogeny);
+
+// Faster 2^eA-torsion Pohlig-Hellman function
+void ph2_fast(const point_full_proj_t phiP, const point_full_proj_t phiQ, const point_t PS, const point_t QS, const f2elm_t A, uint64_t* c0, uint64_t* d0, uint64_t* c1, uint64_t* d1, PCurveIsogenyStruct CurveIsogeny);
 
 // Lookup table generation for 2-torsion PH
 void build_LUTs(const f2elm_t u, f2elm_t* t_ori, f2elm_t* LUT, f2elm_t* LUT_0, f2elm_t* LUT_1, f2elm_t* LUT_3, const felm_t one);
@@ -526,8 +573,11 @@ void phn21(f2elm_t q, const f2elm_t* LUT, const f2elm_t* LUT_0, const f2elm_t* L
 // Pohlig-Hellman for groups of 2-power order 2^372 
 void phn84(f2elm_t r, const f2elm_t* t_ori, const f2elm_t* LUT, const f2elm_t* LUT_0, const f2elm_t* LUT_1, const f2elm_t* LUT_3, const felm_t one, uint64_t* alpha);
 
-// 3-torsion Pohlig-Hellman function       
+// 3-torsion Pohlig-Hellman function   
 void ph3(point_t phiP, point_t phiQ, point_t PS, point_t QS, f2elm_t A, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, PCurveIsogenyStruct CurveIsogeny);
+
+// Faster 3^eB-torsion Pohlig-Hellman function       
+void ph3_fast(point_full_proj_t phiP, point_full_proj_t phiQ, point_full_proj_t PS, point_full_proj_t QS, f2elm_t A, uint64_t* c0, uint64_t* d0, uint64_t* c1, uint64_t* d1, PCurveIsogenyStruct CurveIsogeny);
 
 // Lookup table generation for 3-torsion PH
 void build_LUTs_3(f2elm_t g, f2elm_t* t_ori, f2elm_t* LUT, f2elm_t* LUT_0, f2elm_t* LUT_1, const felm_t one);
@@ -556,6 +606,11 @@ unsigned int mod3(digit_t* a);
 // Computes R+aS
 void mont_twodim_scalarmult(digit_t* a, const point_t R, const point_t S, const f2elm_t A, const f2elm_t A24, point_full_proj_t P, PCurveIsogenyStruct CurveIsogeny);
 
+// Compute the optimal strategy version of the discrete log 
+void Traverse(f2elm_t r, int j, int k, int z, const int *P, const f2elm_t **T, int *D, int Dlen, int ell, PCurveIsogenyStruct CurveIsogeny);
+
+// Precompute the table required by the optimal strategy discrete log
+void Precomp(f2elm_t invg, f2elm_t **T, int ell, int e, PCurveIsogenyStruct CurveIsogeny);
 
 void compress_2_torsion(const unsigned char* PublicKeyA, unsigned char* CompressedPKA, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, point_t R1, point_t R2, PCurveIsogenyStruct CurveIsogeny);
 void compress_3_torsion(const unsigned char* PublicKeyA, unsigned char* CompressedPKA, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, point_t R1, point_t R2, PCurveIsogenyStruct CurveIsogeny);
