@@ -154,6 +154,32 @@ extern "C" {
 #define BIGMONT_MAXWORDS_ORDER  ((BIGMONT_MAXBITS_ORDER+RADIX-1)/RADIX)     // Max. number of words to represent elements in [1, BigMont_order].
    
 
+// Parameters for discrete log computations
+
+// Window sizes
+//#define W_2 1    
+#define W_2 2
+//#define W_2 4
+    
+#define W_3 1
+  
+// # of digits in the discrete log    
+//#define DLEN_2 372 // w = 1
+#define DLEN_2 186 // w = 2
+//#define DLEN_2 93 // w = 4
+    
+#define DLEN_3 239
+
+// Length of the optimal strategy path    
+//#define PLEN_2 373 // w = 1
+#define PLEN_2 187 // w = 2
+//#define PLEN_2 94 // w = 4    
+    
+#define PLEN_3 240
+
+// ell^w    
+#define ELL2_W (1 << W_2)
+    
 // Definitions of the error-handling type and error codes
 
 typedef enum {

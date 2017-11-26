@@ -25,8 +25,8 @@ extern const uint64_t table_r_qnr[TABLE_R_LEN][NWORDS_FIELD];
 extern const uint64_t table_v_qr[TABLE_V_LEN][NWORDS_FIELD];
 extern const uint64_t table_v_qnr[TABLE_V_LEN][NWORDS_FIELD];
 extern const uint64_t v_3_torsion[20][2*NWORDS_FIELD];
-extern const int ph2_path[372];
-extern const int ph3_path[239];
+extern const int ph2_path[PLEN_2];
+extern const int ph3_path[PLEN_3];
 extern const f2elm_t **ph2_T;
 extern const f2elm_t **ph3_T;
 
@@ -81,7 +81,6 @@ void Monty2Weier(const f2elm_t A, f2elm_t a, f2elm_t b, PCurveIsogenyStruct Curv
     fpmul751_mont(temp[0], b[0], b[0]);
     fpmul751_mont(temp[0], b[1], b[1]);
 }
-
 
 
 void PointMonty2Weier(const point_full_proj_t PM, point_full_proj_t PW, const f2elm_t A, PCurveIsogenyStruct CurveIsogeny)
@@ -659,10 +658,9 @@ void xTPL_fast(const point_proj_t P, point_proj_t Q, const f2elm_t A2)
  */
 void xTPLe_fast(point_proj_t P, point_proj_t Q, const f2elm_t A2, int e)
 {    
-    fp2copy751(P->X,Q->X);
-    fp2copy751(P->Z,Q->Z);
+    copy_words((digit_t*)P, (digit_t*)Q, 2*2*NWORDS_FIELD);
     for (int j = 0; j < e; j++) { 
-        xTPL_fast(Q,Q,A2);
+        xTPL_fast(Q, Q, A2);
     }
 }
 
@@ -2213,38 +2211,33 @@ void ph2(const point_t phiP, const point_t phiQ, const point_t PS, const point_t
     mp_sub(CurveIsogeny->Aorder, (digit_t*)b1, (digit_t*)b1, NWORDS_ORDER);
 }
 
-
 void ph2_fast(const point_full_proj_t phiP, const point_full_proj_t phiQ, const point_t PS, const point_t QS, const f2elm_t A, uint64_t* c0, uint64_t* d0, uint64_t* c1, uint64_t* d1, PCurveIsogenyStruct CurveIsogeny)
 { // Pohlig-Hellman function. 
   // This function computes the four pairings e(phiP,PS), e(phiP,QS), e(phiQ,PS), e(phiQ,QS),
   // computes the lookup tables for the Pohlig-Hellman functions,
   // and then computes the discrete logarithms of the pairing values to the base of the precomputed pairing value.                                                                    
-    f2elm_t n[4];
-    int D[372];
+    f2elm_t n[4];    
+    int D[DLEN_2];
     
     // Compute the four pairings.
     Tate_4_pairings_2_torsion(phiP, phiQ, PS, QS, A, n, CurveIsogeny);
 
-    for (int i = 0; i < 372; i++)
-        D[i] = -1;    
-    Traverse(n[0], 0, 0, 372, ph2_path, ph2_T, D, 372, 2, CurveIsogeny);
-    from_base(D,d0,372,2);   
+    for (int i = 0; i < DLEN_2; i++)  D[i] = -1;    
+    Traverse(n[0], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);
+    from_base(D, d0, DLEN_2, ELL2_W);   
     
-    for (int i = 0; i < 372; i++)
-        D[i] = -1;    
-    Traverse(n[2], 0, 0, 372, ph2_path, ph2_T, D, 372, 2, CurveIsogeny);
-    from_base(D,c0,372,2);    
+    for (int i = 0; i < DLEN_2; i++)  D[i] = -1;    
+    Traverse(n[2], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);
+    from_base(D, c0, DLEN_2, ELL2_W);    
     mp_sub(CurveIsogeny->Aorder, (digit_t*)c0, (digit_t*)c0, NWORDS_ORDER);
     
-    for (int i = 0; i < 372; i++)
-        D[i] = -1;    
-    Traverse(n[1], 0, 0, 372, ph2_path, ph2_T, D, 372, 2, CurveIsogeny);
-    from_base(D,d1,372,2);
+    for (int i = 0; i < DLEN_2; i++)  D[i] = -1;    
+    Traverse(n[1], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);
+    from_base(D, d1, DLEN_2, ELL2_W);
     
-    for (int i = 0; i < 372; i++)
-        D[i] = -1;    
-    Traverse(n[3], 0, 0, 372, ph2_path, ph2_T, D, 372, 2, CurveIsogeny);
-    from_base(D,c1,372,2);     
+    for (int i = 0; i < DLEN_2; i++)  D[i] = -1;    
+    Traverse(n[3], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);
+    from_base(D, c1, DLEN_2, ELL2_W);     
     mp_sub(CurveIsogeny->Aorder, (digit_t*)c1, (digit_t*)c1, NWORDS_ORDER); 
 }
 
@@ -2669,27 +2662,27 @@ void ph3_fast(point_full_proj_t phiP, point_full_proj_t phiQ, point_full_proj_t 
   // This function computes the four pairings e(phiP,PS), e(phiP,QS), e(phiQ,PS), e(phiQ,QS)
   // and then computes the discrete logarithms of the pairing values to the base of the precomputed pairing value e(phiP,phiQ)=e(P,Q)^(2^eA).
     f2elm_t n[4];
-    int D[239];
+    int D[DLEN_3];
     
     // Compute the four pairings
     Tate_4_pairings_3_torsion(phiP, phiQ, PS, QS, A, n, CurveIsogeny);
 
-    for (int i = 0; i < CurveIsogeny->eB; i++)  D[i] = -1;    
-    Traverse(n[0], 0, 0, CurveIsogeny->eB, ph3_path, ph3_T, D, CurveIsogeny->eB, 3, CurveIsogeny);
-    from_base(D, d0, CurveIsogeny->eB, 3);   
+    for (int i = 0; i < DLEN_3; i++)  D[i] = -1;    
+    Traverse(n[0], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, 3, W_3, CurveIsogeny);
+    from_base(D, d0, DLEN_3, 3);   
     
-    for (int i = 0; i < CurveIsogeny->eB; i++)  D[i] = -1;    
-    Traverse(n[2], 0, 0, CurveIsogeny->eB, ph3_path, ph3_T, D, CurveIsogeny->eB, 3, CurveIsogeny);
-    from_base(D, c0, CurveIsogeny->eB, 3);    
+    for (int i = 0; i < DLEN_3; i++)  D[i] = -1;    
+    Traverse(n[2], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, 3, W_3, CurveIsogeny);
+    from_base(D, c0, DLEN_3, 3);    
     mp_sub(CurveIsogeny->Border, (digit_t*)c0, (digit_t*)c0, NWORDS_ORDER);
     
-    for (int i = 0; i < CurveIsogeny->eB; i++)  D[i] = -1;    
-    Traverse(n[1], 0, 0, CurveIsogeny->eB, ph3_path, ph3_T, D, CurveIsogeny->eB, 3, CurveIsogeny);
-    from_base(D, d1, CurveIsogeny->eB, 3);
+    for (int i = 0; i < DLEN_3; i++)  D[i] = -1;    
+    Traverse(n[1], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, 3, W_3, CurveIsogeny);
+    from_base(D, d1, DLEN_3, 3);
     
-    for (int i = 0; i < CurveIsogeny->eB; i++)  D[i] = -1;    
-    Traverse(n[3], 0, 0, CurveIsogeny->eB, ph3_path, ph3_T, D, CurveIsogeny->eB, 3, CurveIsogeny);
-    from_base(D, c1, CurveIsogeny->eB, 3);     
+    for (int i = 0; i < DLEN_3; i++)  D[i] = -1;    
+    Traverse(n[3], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, 3, W_3, CurveIsogeny);
+    from_base(D, c1, DLEN_3, 3);     
     mp_sub(CurveIsogeny->Border, (digit_t*)c1, (digit_t*)c1, NWORDS_ORDER);    
 }
 

@@ -607,10 +607,10 @@ unsigned int mod3(digit_t* a);
 void mont_twodim_scalarmult(digit_t* a, const point_t R, const point_t S, const f2elm_t A, const f2elm_t A24, point_full_proj_t P, PCurveIsogenyStruct CurveIsogeny);
 
 // Compute the optimal strategy version of the discrete log 
-void Traverse(f2elm_t r, int j, int k, int z, const int *P, const f2elm_t **T, int *D, int Dlen, int ell, PCurveIsogenyStruct CurveIsogeny);
+void Traverse(f2elm_t r, int j, int k, int z, const int *P, const f2elm_t **T, int *D, int Dlen, int ell, int w, PCurveIsogenyStruct CurveIsogeny);
 
 // Precompute the table required by the optimal strategy discrete log
-void Precomp(f2elm_t invg, f2elm_t **T, int ell, int e, PCurveIsogenyStruct CurveIsogeny);
+void Precomp(f2elm_t invg, f2elm_t **T, int ell, int w, int e, PCurveIsogenyStruct CurveIsogeny);
 
 void compress_2_torsion(const unsigned char* PublicKeyA, unsigned char* CompressedPKA, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, point_t R1, point_t R2, PCurveIsogenyStruct CurveIsogeny);
 void compress_3_torsion(const unsigned char* PublicKeyA, unsigned char* CompressedPKA, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, point_t R1, point_t R2, PCurveIsogenyStruct CurveIsogeny);

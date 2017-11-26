@@ -21,7 +21,7 @@
     #define BENCH_LOOPS        10      // Number of iterations per bench 
     #define TEST_LOOPS         10      // Number of iterations per test
 #else
-    #define BENCH_LOOPS       200       
+    #define BENCH_LOOPS       400       
     #define TEST_LOOPS        100      
 #endif
 #define BIGMONT_TEST_LOOPS     10      // Number of iterations per BigMont test

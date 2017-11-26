@@ -33,6 +33,7 @@ nbproject/
 # MSTest test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
+*_test
 
 # NUNIT
 *.VisualState.xml
@@ -53,6 +54,7 @@ artifacts/
 *.ilk
 *.meta
 *.obj
+*.o
 *.pch
 *.pdb
 *.pgc

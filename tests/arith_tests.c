@@ -19,10 +19,11 @@
 extern const unsigned int splits_Alice[MAX_Alice];
 extern const unsigned int splits_Bob[MAX_Bob];
 
-extern const int ph2_path[372];
-extern const int ph3_path[239];
+extern const int ph2_path[PLEN_2];
+extern const int ph3_path[PLEN_3];
 extern const f2elm_t **ph2_T;
 extern const f2elm_t **ph3_T;
+
 
 // Benchmark and test parameters  
 #if defined(GENERIC_IMPLEMENTATION) 
@@ -34,8 +35,8 @@ extern const f2elm_t **ph3_T;
     #define ECPH_TEST_LOOPS        10       // Number of iterations per Pohlig-Hellman test
     #define COMP_TEST_LOOPS        10       // Number of iterations per Pohlig-Hellman test
 #else
-    #define BENCH_LOOPS           400 
-    #define SMALL_BENCH_LOOPS     250       
+    #define BENCH_LOOPS        170000 
+    #define SMALL_BENCH_LOOPS     700       
     #define TEST_LOOPS            100       
     #define ECPT_TEST_LOOPS        20       
     #define ECPAIR_TEST_LOOPS      20       
@@ -570,7 +571,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     bool OK = true;
     int n;
     unsigned long long msrcycles, cycles, cycles1, cycles2, msr;
-    f2elm_t A24, C24, A4, A, C, coeff[5];
+    f2elm_t A24, C24, A4, A, C, coeff[5], one = {0};
     point_proj_t P, Q;
     point_full_proj_t R1, R2;
     point_t S1, S2;
@@ -598,7 +599,10 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);    
     
     PrivateKeyB = (unsigned char*)calloc(1, obytes);
-    PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);    
+    PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
+    
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    
         
     printf("\n--------------------------------------------------------------------------------------------------------\n\n"); 
     printf("Benchmarking elliptic curve and isogeny functions: \n\n"); 
@@ -644,28 +648,41 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     }
     printf("  4-isogeny evaluation at projective point runs in ................ %7lld ", msrcycles/BENCH_LOOPS); print_unit;
     printf("\n");
-
+    
+    fp2copy751(one, C);
+    
     // Point tripling
     msrcycles = 0;
     cycles = 0;
-    for (n=0; n<BENCH_LOOPS; n++)
+    for (n = 0; n < SMALL_BENCH_LOOPS; n++)
     {
-        fp2random751_test(A4); fp2random751_test(C);
+        //fp2random751_test(A4); fp2random751_test(C);        
+        EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);
+        to_fp2mont(((f2elm_t*)PublicKeyA)[0], ((f2elm_t*)&PK)[0]);    // Converting to Montgomery representation
+        to_fp2mont(((f2elm_t*)PublicKeyA)[1], ((f2elm_t*)&PK)[1]); 
+        to_fp2mont(((f2elm_t*)PublicKeyA)[2], ((f2elm_t*)&PK)[2]);         
+        get_A(PK[0], PK[1], PK[2], A, CurveIsogeny);       
+        BuildOrdinaryE3nBasis(A, R1, R2, CurveIsogeny);
+        fp2copy751(one, C);
+        fp2copy751(R1->X, P->X);
+        fp2copy751(R1->Z, P->Z); // P is full order and can be tripled 239 times until getting zero
+        
+        fp2div2_751(A, A4);
 
         cycles1 = cpucycles(); 
-        xTPL(P, Q, A4, C);   // Original        
+        xTPLe(P, Q, A, C, 239);
         cycles2 = cpucycles();
         msrcycles = msrcycles+(cycles2-cycles1);
         
-        cycles1 = cpucycles(); 
-        xTPL_fast(P, Q, A4); // Faster
+        cycles1 = cpucycles();
+        xTPLe_fast(P, Q, A4, 239); // Faster
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
-        
+
     }
-    printf("\n  Point tripling runs in .......................................... %7lld ", msrcycles/BENCH_LOOPS); print_unit;
-    printf("\n  Fast Point tripling runs in ..................................... %7lld ", cycles/BENCH_LOOPS); print_unit;
-    printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);
+    printf("\n  Point tripling runs in .......................................... %7lld ", msrcycles/SMALL_BENCH_LOOPS/239); print_unit;
+    printf("\n  Fast Point tripling runs in ..................................... %7lld ", cycles/SMALL_BENCH_LOOPS/239); print_unit;
+    printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);
     printf("\n\n");
     
     // 3-isogeny of a projective point
@@ -684,7 +701,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
 
     // 3-isogeny evaluation at projective point
     msrcycles = 0;
-    for (n=0; n<BENCH_LOOPS; n++)
+    for (n = 0; n < BENCH_LOOPS; n++)
     {
         cycles1 = cpucycles(); 
         eval_3_isog(P, Q);
@@ -697,7 +714,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     // 2^eA-torsion basis generation
     msrcycles = 0;
     cycles = 0;
-    for (n = 0; n < BENCH_LOOPS; n++)
+    for (n = 0; n < SMALL_BENCH_LOOPS; n++)
     {
         EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);
         
@@ -717,15 +734,15 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    printf("\n  2^eA-torsion basis generation runs in .......................... %7lld ", msrcycles/BENCH_LOOPS); print_unit;
-    printf("\n  2^eA-torsion entangled basis generation runs in ................. %7lld ", cycles/BENCH_LOOPS); print_unit;
+    printf("\n  2^eA-torsion basis generation runs in .......................... %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  2^eA-torsion entangled basis generation runs in ................. %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  .................................................................. ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");
     
     // 3^eB-torsion basis generation
     msrcycles = 0;
     cycles = 0;
-    for (n=0; n<BENCH_LOOPS; n++)
+    for (n = 0; n < SMALL_BENCH_LOOPS; n++)
     {
         EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);
         
@@ -745,8 +762,8 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
-    printf("\n  3^eB-torsion basis generation runs in .......................... %7lld ", msrcycles/BENCH_LOOPS); print_unit;
-    printf("\n  Fast 3^eB-torsion basis generation runs in ..................... %7lld ", cycles/BENCH_LOOPS); print_unit;
+    printf("\n  3^eB-torsion basis generation runs in .......................... %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  Fast 3^eB-torsion basis generation runs in ..................... %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");    
 
@@ -910,7 +927,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
     point_full_proj_t P, Q, phP, phQ, phX;
     publickey_t PK_A, PK_B;
     PCurveIsogenyStruct CurveIsogeny = {0};
-    int D2[372], D3[239];
+    int D2[DLEN_2], D3[DLEN_3];
     unsigned int pbytes = (CurveIsogenyData->pwordbits + 7)/8;    // Number of bytes in a field element 
     unsigned int obytes = (CurveIsogenyData->owordbits + 7)/8;    // Number of bytes in an element in [1, order]    
     unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB, *CompressedPKA, *CompressedPKB;
@@ -942,7 +959,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
     // Benchmark 2-torsion Pairings
     msrcycles = 0;
     cycles = 0;
-    for (int i = 0; i < BENCH_LOOPS; i++) {
+    for (int i = 0; i < SMALL_BENCH_LOOPS; i++) {
         EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);
 
         to_fp2mont(((f2elm_t*)PublicKeyB)[0], ((f2elm_t*)&PK_B)[0]);    // Converting to Montgomery representation
@@ -978,15 +995,15 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         cycles2 = cpucycles();
         cycles = cycles + (cycles2-cycles1);        
     }
-    printf("\n  Five pairings 2-torsion  ....................................... %7lld ", msrcycles/BENCH_LOOPS); print_unit;
-    printf("\n  Four faster pairings 2-torsion ................................. %7lld ", cycles/BENCH_LOOPS); print_unit;
+    printf("\n  Five pairings 2-torsion  ....................................... %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  Four faster pairings 2-torsion ................................. %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);    
     printf("\n");
     
     // Benchmark 3-torsion Pairings
     msrcycles = 0;
     cycles = 0;
-    for (int i = 0; i < BENCH_LOOPS; i++) {
+    for (int i = 0; i < SMALL_BENCH_LOOPS; i++) {
         EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);
 
         to_fp2mont(((f2elm_t*)PublicKeyA)[0], ((f2elm_t*)&PK_A)[0]);    // Converting to Montgomery representation
@@ -1020,9 +1037,9 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         cycles2 = cpucycles();
         cycles = cycles + (cycles2-cycles1);        
     }
-    printf("\n  Five pairings 3-torsion  ....................................... %7lld ", msrcycles/BENCH_LOOPS); print_unit;
-    printf("\n  Four faster pairings 3-torsion ................................. %7lld ", cycles/BENCH_LOOPS); print_unit;
-    printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);    
+    printf("\n  Five pairings 3-torsion  ....................................... %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  Four faster pairings 3-torsion ................................. %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");
     
     // Benchmark Discrete Logs
@@ -1058,7 +1075,8 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
     Tate_4_pairings_3_torsion(phP, phQ, P, Q, A, n, CurveIsogeny);    
     
     msrcycles = 0;
-    for (int i = 0; i < BENCH_LOOPS; i++) {
+    cycles = 0;
+    for (int i = 0; i < SMALL_BENCH_LOOPS; i++) {
         cycles1 = cpucycles();        
         to_fp2mont((felm_t*)CurveIsogeny->epq_B,epq);
         build_LUTs_3(epq, t_ori, LUT, LUT_0, LUT_1, one[0]); // Build the look-up tables
@@ -1066,27 +1084,23 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         phn61(n[0], t_ori, LUT, LUT_0, LUT_1, one[0], digit);       
         cycles2 = cpucycles();
         msrcycles = msrcycles + (cycles2-cycles1);
-    }    
-    
-    cycles = 0;
-    for (int i = 0; i < BENCH_LOOPS; i++) {
+
         cycles1 = cpucycles();
-        for (int i = 0; i < 239; i++)
-            D3[i] = -1;          
-        Traverse(n[0], 0, 0, 239, ph3_path, ph3_T, D3, 239, 3, CurveIsogeny);
-        from_base(D3, digit, 239, 3);
+        for (int i = 0; i < DLEN_3; i++)  D3[i] = -1;          
+        Traverse(n[0], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D3, DLEN_3, 3, W_3, CurveIsogeny);
+        from_base(D3, digit, DLEN_3, 3);
         cycles2 = cpucycles();
         cycles = cycles + (cycles2-cycles1);
     }    
-    printf("\n  Discrete logs 3-torsion  ........................................ %7lld ", msrcycles/BENCH_LOOPS); print_unit;
-    printf("\n  Fast Discrete logs 3-torsion (w = 1)............................. %7lld ", cycles/BENCH_LOOPS); print_unit;
-    printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);    
+    printf("\n  Discrete logs 3-torsion  ........................................ %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  Fast Discrete logs 3-torsion (w = 1)............................. %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");
     
     
     msrcycles = 0;
     cycles = 0;
-    for (int i = 0; i < BENCH_LOOPS; i++) {
+    for (int i = 0; i < SMALL_BENCH_LOOPS; i++) {
         EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);
 
         to_fp2mont(((f2elm_t*)PublicKeyB)[0], ((f2elm_t*)&PK_B)[0]);    // Converting to Montgomery representation
@@ -1117,15 +1131,14 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         Tate_4_pairings_2_torsion(phP, phQ, S1, S2, A, n, CurveIsogeny);         
         
         cycles1 = cpucycles();
-        for (int i = 0; i < 372; i++)
-            D2[i] = -1;    
-        Traverse(n[0], 0, 0, 372, ph2_path, ph2_T, D2, 372, 2, CurveIsogeny);
-        from_base(D2,digit,372,2);          
+        for (int i = 0; i < DLEN_2; i++)  D2[i] = -1;    
+        Traverse(n[0], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D2, DLEN_2, ELL2_W, W_2, CurveIsogeny);
+        from_base(D2, digit, DLEN_2, ELL2_W);          
         cycles2 = cpucycles();
         cycles = cycles + (cycles2-cycles1);
     }    
-    printf("\n  Discrete logs 2-torsion  ........................................ %7lld ", msrcycles/BENCH_LOOPS); print_unit;
-    printf("\n  Fast Discrete logs 2-torsion .................................... %7lld ", cycles/BENCH_LOOPS); print_unit;
+    printf("\n  Discrete logs 2-torsion  ........................................ %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  Fast Discrete logs 2-torsion .................................... %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");
     

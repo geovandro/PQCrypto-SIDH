@@ -122,6 +122,14 @@ void from_base(int *D, digit_t *r, int Dlen, int base)
         mp_add(r, digit, r, 6);
         if (base == 2) {
             mp_add(r, r, r, 6);
+        } else if (base == 4) {
+            mp_add(r, r, r, 6);
+            mp_add(r, r, r, 6);
+        } else if (base == 16) {
+            mp_add(r, r, r, 6);
+            mp_add(r, r, r, 6);            
+            mp_add(r, r, r, 6);   
+            mp_add(r, r, r, 6);               
         } else {
             mp_add(r, r, temp, 6);
             mp_add(r, temp, r, 6);
@@ -1094,20 +1102,21 @@ void exp_Fp2_cycl(const f2elm_t y, uint64_t* t, const felm_t one, f2elm_t res, i
   // This function uses 64-bit digits for representing exponents.
     unsigned int nword, bit, nwords = (length+63)/64;
     int i;
+    f2elm_t temp = {0};
 
-    fp2zero751(res);
-    fpcopy751(one, res[0]);               // res = 1
+    fpcopy751(one, temp[0]);               // res = 1
 
     if (!is_zero((digit_t*)t, nwords)) {  // Is t = 0?
         for (i = length; i >= 0; i--) {
-            sqr_Fp2_cycl(res, one);
+            sqr_Fp2_cycl(temp, one);
             nword = i >> 6;
             bit = 1 & (t[nword] >> (i - (nword << 6)));
             if (bit == 1) {
-                fp2mul751_mont(res, y, res);
+                fp2mul751_mont(temp, y, temp);
             }
         }
-    }
+        fp2copy751(temp, res);    
+    }    
 }
 
 

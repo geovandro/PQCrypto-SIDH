@@ -62,8 +62,8 @@ CRYPTO_STATUS SIDH_curve_initialize(PCurveIsogenyStruct pCurveIsogeny, RandomByt
     to_fp2mont((felm_t*)pCurveIsogeny->epq_B,invg_B);
     fp2_conj(invg_A, invg_A);
     fp2_conj(invg_B, invg_B);
-    Precomp(invg_A, ph2_T, 2, pCurveIsogeny->oAbits, pCurveIsogeny);
-    Precomp(invg_B, ph3_T, 3, pCurveIsogeny->eB, pCurveIsogeny);
+    Precomp(invg_A, ph2_T, ELL2_W, W_2, DLEN_2, pCurveIsogeny);
+    Precomp(invg_B, ph3_T, 3, W_3, pCurveIsogeny->eB, pCurveIsogeny);
     
     return CRYPTO_SUCCESS;
 }
@@ -75,6 +75,7 @@ PCurveIsogenyStruct SIDH_curve_allocate(PCurveIsogenyStaticData CurveData)
     digit_t pbytes = (CurveData->pwordbits + 7)/8;
     digit_t obytes = (CurveData->owordbits + 7)/8;
     PCurveIsogenyStruct pCurveIsogeny = NULL;
+    int w = 4;
 
     pCurveIsogeny = (PCurveIsogenyStruct)calloc(1, sizeof(CurveIsogenyStruct));
     pCurveIsogeny->prime = (digit_t*)calloc(1, pbytes);
@@ -91,12 +92,12 @@ PCurveIsogenyStruct SIDH_curve_allocate(PCurveIsogenyStaticData CurveData)
     pCurveIsogeny->epq_A = (digit_t*)calloc(1, 2*pbytes);
     pCurveIsogeny->epq_B = (digit_t*)calloc(1, 2*pbytes);
     
-    ph2_T = (f2elm_t**)calloc(372, sizeof(f2elm_t*));
-    for (int i = 0; i < 372; i++) {
-        ph2_T[i] = (f2elm_t*)calloc(2, sizeof(f2elm_t));
+    ph2_T = (f2elm_t**)calloc(DLEN_2, sizeof(f2elm_t*));
+    for (int i = 0; i < DLEN_2; i++) {
+        ph2_T[i] = (f2elm_t*)calloc(ELL2_W, sizeof(f2elm_t));
     }    
     
-    ph3_T = (f2elm_t**)calloc(239, sizeof(f2elm_t*));
+    ph3_T = (f2elm_t**)calloc(DLEN_3, sizeof(f2elm_t*));
     for (int i = 0; i < 239; i++) {
         ph3_T[i] = (f2elm_t*)calloc(3, sizeof(f2elm_t));
     }
@@ -135,7 +136,15 @@ void SIDH_curve_free(PCurveIsogenyStruct pCurveIsogeny)
              free(pCurveIsogeny->Montgomery_pp);
         if (pCurveIsogeny->Montgomery_one != NULL) 
              free(pCurveIsogeny->Montgomery_one);
-
+        if (pCurveIsogeny->epq_A != NULL)
+            free(pCurveIsogeny->epq_A);
+        if (pCurveIsogeny->epq_B != NULL)
+            free(pCurveIsogeny->epq_B);
+        if (ph2_T != NULL)
+            free(ph2_T);
+        if (ph3_T != NULL)
+            free(ph3_T);
+        
         free(pCurveIsogeny);
     }
 }
