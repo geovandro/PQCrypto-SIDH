@@ -1039,7 +1039,7 @@ void sqr_Fp2_cycl(f2elm_t a, const felm_t one)
 
 __inline void inv_Fp2_cycl(f2elm_t a)
 { // Cyclotomic inversion, a^(p+1) = 1 => a^(-1) = a^p = a0 - i*a1.
-    if (!is_felm_zero(a[1])) // It seems there is a bug in fpneg751 since fpneg751(0) != 0
+    if (!is_felm_zero(a[1])) // It seems there is a bug in fpneg751 since fpneg751(0) != 0 in the GENERIC version
         fpneg751(a[1]);
 }
 
@@ -1104,7 +1104,7 @@ void exp_Fp2_cycl(const f2elm_t y, uint64_t* t, const felm_t one, f2elm_t res, i
     int i;
     f2elm_t temp = {0};
 
-    fpcopy751(one, temp[0]);               // res = 1
+    fpcopy751(one, temp[0]);              // temp = 1
 
     if (!is_zero((digit_t*)t, nwords)) {  // Is t = 0?
         for (i = length; i >= 0; i--) {
@@ -1114,9 +1114,9 @@ void exp_Fp2_cycl(const f2elm_t y, uint64_t* t, const felm_t one, f2elm_t res, i
             if (bit == 1) {
                 fp2mul751_mont(temp, y, temp);
             }
-        }
-        fp2copy751(temp, res);    
-    }    
+        }        
+    }
+    fp2copy751(temp, res);
 }
 
 

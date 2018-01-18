@@ -1965,8 +1965,6 @@ void Tate_pairings_3_torsion_fast(const point_full_proj_t P, point_full_proj_t *
             } else {
                 fp2mul751_mont(M, h[j], temp);
                 fp2add751(temp, d, g);
-                fp2_conj(Y, temp);
-                fp2mul751_mont(temp, g, g);
             }
             fp2sqr751_mont(n[j], temp);
             fp2mul751_mont(temp, n[j], n[j]);
