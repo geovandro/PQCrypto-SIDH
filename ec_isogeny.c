@@ -13,6 +13,8 @@
 #include "SIDH_internal.h"
 #include "tests/test_extras.h"
 #include <math.h>
+#include <assert.h>
+#include <stdio.h>
 
 #define TABLE_R_LEN 17
 #define TABLE_V_LEN 34
@@ -93,11 +95,12 @@ void PointMonty2Weier(const point_full_proj_t PM, point_full_proj_t PW, const f2
         fp2copy751(zero,PW->X);
         fp2copy751(one, PW->Y);
         fp2copy751(zero,PW->Z);
+        return;
     }
     fpmul751_mont(threeinv, A[0], temp[0]);
     fpmul751_mont(threeinv, A[1], temp[1]);
     
-    //PW = EW(PM[0] + A/3, PM[1], 1)
+    //PW = EW(PM->X + A/3, PM->Y, 1)
     fp2add751(temp, PM->X, PW->X);
     fp2copy751(PM->Y, PW->Y);
     fp2copy751(one, PW->Z);
@@ -951,11 +954,11 @@ void generate_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2,
         fpadd751(t[0], one[0], t[0]);
         fp2mul751_mont(x1, t, t); // t = x1^3 + A*x1^2 + x1 = x1(x1(x1 + A) + 1)
         index += 2;
-    } while (!is_sqr_fp2(t, s));        
+    } while (!is_sqr_fp2(t, s));
     
     if (isSqrA)
         copy_words(table_r_qnr[(index-2)/2], r, NWORDS_FIELD);
-    else 
+    else
         copy_words(table_r_qr[(index-2)/2], r, NWORDS_FIELD);
     
     // Finish sqrt computation for y1 = sqrt(x1^3+A*x1^2+x1)
@@ -1585,7 +1588,7 @@ void Tate_pairings_2_torsion_fast(const point_full_proj_t P, point_full_proj_t *
         
         fp2correction751(Zp);
         if (fp2compare751(Zp,zero) == 0) { // doubling exception for points in 2*E
-            fp2copy751(zero, Xp);
+            fp2copy751(one, Xp);
             fp2copy751(one, Yp);            
         }
 
@@ -1874,14 +1877,14 @@ void Tate_pairings_3_torsion_fast(const point_full_proj_t P, point_full_proj_t *
     f2elm_t X, Y, Z, X2, Y2, Y4, M, S, T, XQ;
     f2elm_t Xp, Yp, Zp, Tp, D, U, Up, Fp;
     f2elm_t L, W, Wp, g, T2, M2, F, F2, d;
-    f2elm_t temp, temp1;
+    f2elm_t temp, temp1;//, temp2, temp3;
     
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     fp2copy751(P->X, X);
     fp2copy751(P->Y, Y);
     fp2copy751(P->Z, Z);
     fp2sqr751_mont(Z, T);
-
+    
     for (int j = 0; j < t; j++) {
         fp2copy751(one, n[j]);
         fp2mul751_mont(T, Qj[j]->X, temp);
@@ -1940,9 +1943,10 @@ void Tate_pairings_3_torsion_fast(const point_full_proj_t P, point_full_proj_t *
         
         fp2correction751(Zp);
         if (fp2compare751(Zp, zero) == 0) {
-            fp2copy751(zero, Xp);
+            fp2copy751(one, Xp);
             fp2copy751(one, Yp);
         }
+        
         // Parabola function evaluation and accumulation
         for (int j = 0; j < t; j++) {
             fp2mul751_mont(L, Qj[j]->Y, temp);
@@ -1975,6 +1979,12 @@ void Tate_pairings_3_torsion_fast(const point_full_proj_t P, point_full_proj_t *
         fp2copy751(Zp, Z);
         fp2copy751(Tp, T);        
     }
+    
+    // Just for testing
+//    fp2copy751(Y, temp2);
+//    fp2correction751(temp2);
+//    from_fp2mont(temp2, temp2);    
+    
     // final exponentiation:
     mont_n_way_inv(n, t, h);
     for (int j = 0; j < t; j++) {

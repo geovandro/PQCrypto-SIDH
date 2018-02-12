@@ -453,7 +453,7 @@ void PublicKeyCompression_A_fast(const unsigned char* PublicKeyA, unsigned char*
     to_fp2mont(((f2elm_t*)PublicKeyA)[2], ((f2elm_t*)&PK)[2]); 
 
     recover_y(PK, phP, phQ, phX, A, CurveIsogeny);
-
+    
     BuildOrdinaryE3nBasis(A, P, Q, CurveIsogeny);
     
     fp2copy751(phP->Z, vec[0]);
