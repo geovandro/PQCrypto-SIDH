@@ -36,7 +36,7 @@ extern const f2elm_t **ph3_T;
     #define COMP_TEST_LOOPS        10       // Number of iterations per Pohlig-Hellman test
 #else
     #define BENCH_LOOPS        170000 
-    #define SMALL_BENCH_LOOPS     700       
+    #define SMALL_BENCH_LOOPS   10000       
     #define TEST_LOOPS            100       
     #define ECPT_TEST_LOOPS        20       
     #define ECPAIR_TEST_LOOPS      20       
@@ -570,7 +570,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
 {
     bool OK = true;
     int n;
-    unsigned long long msrcycles, cycles, cycles1, cycles2, msr;
+    unsigned long long msrcycles, cycles, cycles_det, cycles_det_noli, cycles1, cycles2, msr;
     f2elm_t A24, C24, A4, A, C, coeff[5], one = {0};
     point_proj_t P, Q;
     point_full_proj_t R1, R2;
@@ -581,7 +581,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     unsigned int pbytes = (CurveIsogenyData->pwordbits + 7)/8;    // Number of bytes in a field element 
     unsigned int obytes = (CurveIsogenyData->owordbits + 7)/8;    // Number of bytes in an element in [1, order]    
     unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB;
-
+    unsigned int rs[2] = {0};
     
     // Curve isogeny system initialization
     CurveIsogeny = SIDH_curve_allocate(CurveIsogenyData);
@@ -742,6 +742,8 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     // 3^eB-torsion basis generation
     msrcycles = 0;
     cycles = 0;
+    cycles_det = 0;
+    cycles_det_noli = 0;
     for (n = 0; n < SMALL_BENCH_LOOPS; n++)
     {
         EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);
@@ -757,14 +759,31 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
         cycles2 = cpucycles();
         msrcycles = msrcycles+(cycles2-cycles1);
         
+        
         cycles1 = cpucycles(); 
         BuildOrdinaryE3nBasis(A, R1, R2, CurveIsogeny); // Entangled basis
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
+        
+        rs[0] = 0; rs[1] = 0;        
+        BuildOrdinaryE3nBasis_compression(A, R1, R2, rs, CurveIsogeny);
+        cycles1 = cpucycles(); 
+        BuildOrdinaryE3nBasis_decompression(A, R1, R2, rs[0], rs[1], CurveIsogeny);
+        cycles2 = cpucycles();
+        cycles_det = cycles_det+(cycles2-cycles1);
+        
+        cycles1 = cpucycles(); 
+        BuildOrdinaryE3nBasis_decompression_noLItest(A, R1, R2, rs[0], rs[1], CurveIsogeny);
+        cycles2 = cpucycles();
+        cycles_det_noli = cycles_det_noli+(cycles2-cycles1);        
     }
-    printf("\n  3^eB-torsion basis generation runs in .......................... %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
-    printf("\n  Fast 3^eB-torsion basis generation runs in ..................... %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  3-descent 3^eB-torsion basis generation runs in ................ %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  Naive 3^eB-torsion basis generation runs in .................... %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
+    printf("\n  Deterministic 3^eB-torsion basis generation runs in ............ %7lld ", cycles_det/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles_det);    
+    printf("\n  Determ. + no LI check 3^eB-torsion basis generation runs in ......%7lld ", cycles_det_noli/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles_det_noli);    
     printf("\n");    
 
 cleanup:
@@ -999,7 +1018,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
     printf("\n  Four faster pairings 2-torsion ................................. %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);    
     printf("\n");
-    
+ 
     // Benchmark 3-torsion Pairings
     msrcycles = 0;
     cycles = 0;
@@ -1013,10 +1032,12 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         recover_y(PK_A, phP, phQ, phX, A, CurveIsogeny);
 
         generate_3_torsion_basis(A, P, Q, CurveIsogeny);
+        //BuildOrdinaryE3nBasis(A, P, Q, CurveIsogeny);
+        
         fp2copy751(P->Z, vec[0]);
         fp2copy751(Q->Z, vec[1]);
         fp2copy751(phP->Z, vec[2]);
-        fp2copy751(phQ->Z, vec[3]);        
+        fp2copy751(phQ->Z, vec[3]);
         mont_n_way_inv(vec, 4, Zinv);
         fp2mul751_mont(P->X, Zinv[0], S1->x);
         fp2mul751_mont(P->Y, Zinv[0], S1->y);
@@ -1025,7 +1046,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         fp2mul751_mont(phP->X, Zinv[2], phiP->x);
         fp2mul751_mont(phP->Y, Zinv[2], phiP->y);
         fp2mul751_mont(phQ->X, Zinv[3], phiQ->x);
-        fp2mul751_mont(phQ->Y, Zinv[3], phiQ->y);        
+        fp2mul751_mont(phQ->Y, Zinv[3], phiQ->y);      
         
         cycles1 = cpucycles(); 
         Tate_pairings_3_torsion(phiP, phiQ, S1, S2, A, m, CurveIsogeny);  
