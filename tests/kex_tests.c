@@ -21,8 +21,8 @@
     #define BENCH_LOOPS        10      // Number of iterations per bench 
     #define TEST_LOOPS         10      // Number of iterations per test
 #else
-    #define BENCH_LOOPS       400       
-    #define TEST_LOOPS        100      
+    #define BENCH_LOOPS      3000       
+    #define TEST_LOOPS         20    
 #endif
 #define BIGMONT_TEST_LOOPS     10      // Number of iterations per BigMont test
 
@@ -128,7 +128,7 @@ CRYPTO_STATUS cryptotest_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
     PublicKeyA_tmp = (unsigned char*)calloc(1, 3*2*pbytes);            // Three elements in GF(p^2)
     PublicKeyB_tmp = (unsigned char*)calloc(1, 3*2*pbytes);
-    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);    // Three elements in [1, order] plus one field element
+    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);    // Three elements in [1, order] plus one field element
     CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);
     SharedSecretA = (unsigned char*)calloc(1, 2*pbytes);               // One element in GF(p^2)  
     SharedSecretB = (unsigned char*)calloc(1, 2*pbytes);
@@ -370,13 +370,14 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     PrivateKeyB = (unsigned char*)calloc(1, obytes);
     PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);                // Three elements in GF(p^2)
     PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
-    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);    // Three elements in [1, order] and one field element  
+    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);    // Three elements in [1, order] and one field element  
     CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes); 
     SharedSecretA = (unsigned char*)calloc(1, 2*pbytes);               // One element in GF(p^2)
     SharedSecretB = (unsigned char*)calloc(1, 2*pbytes); 
     R = (unsigned char*)calloc(1, 2*2*pbytes);                         // One point in (X:Z) coordinates 
     A = (unsigned char*)calloc(1, 2*pbytes);                           // One element in GF(p^2)             
 
+    
     printf("\n\nBENCHMARKING EPHEMERAL ISOGENY-BASED KEY EXCHANGE USING COMPRESSION \n");
     printf("--------------------------------------------------------------------------------------------------------\n\n");
     printf("Curve isogeny system: %s \n\n", CurveIsogenyData->CurveIsogeny);
@@ -392,17 +393,6 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
         goto cleanup;
     } 
 
-    Status = EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);    // Get some value as Alice's secret key and compute Alice's public key
-    if (Status != CRYPTO_SUCCESS) {                                                  
-        goto cleanup;
-    }
-
-    Status = EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
-    if (Status != CRYPTO_SUCCESS) {                                                  
-        goto cleanup;
-    }
-
-    
     // Benchmarking Alice's public key compression
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
@@ -429,14 +419,14 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     printf("\n  Fast Alice's public key compression runs in .................. %10lld ", cycles/BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);
     printf("\n");
-    
+   
     // Benchmarking Alice's key decompression by Bob
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);    // Get some value as Alice's secret key and compute Alice's public key 
         PublicKeyCompression_A_fast(PublicKeyA, CompressedPKA, CurveIsogeny);         
-
+        
         cycles1 = cpucycles();
         PublicKeyADecompression_B_fast(PrivateKeyB, CompressedPKA, R, A, CurveIsogeny); // Faster
         cycles2 = cpucycles();

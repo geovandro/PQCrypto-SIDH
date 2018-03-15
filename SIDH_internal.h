@@ -534,6 +534,15 @@ void generate_3_torsion_basis(f2elm_t A, point_full_proj_t R1, point_full_proj_t
 // Produces points R1 and R2 as basis for E[3^239] faster 
 void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny);
 
+// Produces points R1 and R2 as basis for E[3^239] faster and also returns Elligator 2 counters for regenerating the basis in decompression
+void BuildOrdinaryE3nBasis_compression(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int *rs, PCurveIsogenyStruct CurveIsogeny);
+
+// Produces points R1 and R2 as basis for E[3^239] faster with shared elligator
+void BuildOrdinaryE3nBasis_decompression(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int r1, unsigned int r2, PCurveIsogenyStruct CurveIsogeny);
+
+// Produces points R1 and R2 as basis for E[3^239] faster with shared elligator and without linear independence testing
+void BuildOrdinaryE3nBasis_decompression_noLItest(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int r1, unsigned int r2, PCurveIsogenyStruct CurveIsogeny);
+
 // Compute five 2^eA-torsion Tate pairings
 void Tate_pairings_2_torsion(const point_t R1, const point_t R2, const point_t P, const point_t Q, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny);
 

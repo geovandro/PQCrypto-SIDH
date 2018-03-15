@@ -36,6 +36,18 @@ const uint64_t threeinv[NWORDS64_FIELD] = {0x555555555556188F, 0x555555555555555
                                            0x5555555555555555, 0x8105555555555555, 0x1C6290A167C97977, 0xCDD287EA6A6FB6F0, 
                                            0x42DF3D3B8EC96F64, 0x198C3C1346027872, 0xB0528624270642A3, 0xF1E61944CA0,};
 
+
+static unsigned int is_fp_zero(const felm_t x)
+{ // Is x = 0? return 1 (TRUE) if condition is true, 0 (FALSE) otherwise.
+  // SECURITY NOTE: This function does not run in constant-time.
+    unsigned int i;
+
+    for (i = 0; i < NWORDS_FIELD; i++) {
+        if (x[i] != 0) return false;
+    }
+    return true;
+}
+
 void j_inv(const f2elm_t A, const f2elm_t C, f2elm_t jinv)
 { // Computes the j-invariant of a Montgomery curve with projective constant.
   // Input: A,C in GF(p^2).
@@ -1298,9 +1310,9 @@ void BasePoint3n(f2elm_t A, unsigned int *r, point_proj_t P, point_proj_t Q, PCu
         fp2copy751((felm_t*)&v_3_torsion[*r-1], v); //v := 1/(1 + U*r^2); //table lookup
         fp2copy751(A,two);
         fp2neg751(two);
-        fp2mul751_mont(two,v,x);  //x = -A*v;
-        fp2mul751_mont(A,x,y2);  
-        fpadd751(y2[0], one, y2[0]);
+        fp2mul751_mont(two,v,x);  // x = -A*v;
+        fp2mul751_mont(A,x,y2);             
+        fpadd751(y2[0], one, y2[0]);        
         fp2sqr751_mont(x,temp);
         fp2add751(temp,y2,y2);
         fp2mul751_mont(x,y2,y2); // y2 = x*(x^2 + A*x + 1);
@@ -1333,6 +1345,113 @@ void BasePoint3n(f2elm_t A, unsigned int *r, point_proj_t P, point_proj_t Q, PCu
 }
 
 
+// Deterministic xz-only construction of a point of order 3^n in the Montgomery curve y^2 = x^3 + A*x^2 + x from counter r1.
+// Notice that the Elligator 2 counter r was generated beforehand during key compression
+void BasePoint3n_decompression(f2elm_t A, unsigned int r, point_proj_t P, point_proj_t Q, PCurveIsogenyStruct CurveIsogeny)
+{
+    int i;
+    felm_t one, a2, b2, N, temp0, temp1;
+    f2elm_t A2, A24, two = {0}, v, x, y2, temp, one_fp2 = {0};
+    point_proj_t S;
+    
+    fpcopy751(CurveIsogeny->Montgomery_one, one);
+    fpcopy751(CurveIsogeny->Montgomery_one, one_fp2[0]);
+    fp2div2_751(A,A2);
+    fpcopy751(CurveIsogeny->Montgomery_one,two[0]);
+    fpadd751(two[0], two[0], two[0]);
+    fp2add751(A,two,A24);
+    fp2div2_751(A24,A24);
+    fp2div2_751(A24,A24);
+
+    fp2copy751((felm_t*)&v_3_torsion[r-1], v); //v := 1/(1 + U*r^2); //table lookup
+    fp2copy751(A,two);
+    fp2neg751(two);
+    fp2mul751_mont(two,v,x);  // x = -A*v;
+    fp2mul751_mont(A,x,y2);             
+    fpadd751(y2[0], one, y2[0]);        
+    fp2sqr751_mont(x,temp);
+    fp2add751(temp,y2,y2);
+    fp2mul751_mont(x,y2,y2); // y2 = x*(x^2 + A*x + 1);
+    fpsqr751_mont(y2[0],a2);
+    fpsqr751_mont(y2[1],b2);
+    fpadd751(a2,b2,N);       // N := Fp!norm(y2);
+
+    fpcopy751(N,temp0);
+    for (i = 0; i < 370; i++) {    
+        fpsqr751_mont(temp0, temp0);
+    }
+    for (i = 0; i < 239; i++) {
+        fpsqr751_mont(temp0, temp1);
+        fpmul751_mont(temp0, temp1, temp0);
+    }
+    fpsqr751_mont(temp0,temp1);  // z = N^((p + 1) div 4);
+    fpcorrection751(temp1);
+    fpcorrection751(N);
+    if (fpcompare751(temp1,N) != 0) {
+        fp2neg751(x);
+        fp2sub751(x,A,x);        // x = -x - A;
+    }
+    fp2copy751(x,S->X);
+    fp2copy751(one_fp2,S->Z);
+    Double(S,P,A24,CurveIsogeny->oAbits);   // x, z := Double(A24, x, 1, eA);
+#if !defined(NO_LI_CHECK)    
+    xTPLe_fast(P,Q,A2,CurveIsogeny->eB-1);  // t, w := Triple(A_2, x, z, eB-1);
+#endif    
+}
+
+
+// Deterministic xz-only construction of a point of order 3^n in the Montgomery curve y^2 = x^3 + A*x^2 + x from counter r1.
+// Notice that the Elligator 2 counter r was generated beforehand during key compression without linear independence testing
+void BasePoint3n_decompression_noLItest(f2elm_t A, unsigned int r, point_proj_t P, PCurveIsogenyStruct CurveIsogeny)
+{
+    int i;
+    felm_t one, a2, b2, N, temp0, temp1;
+    f2elm_t A2, A24, two = {0}, v, x, y2, temp, one_fp2 = {0};
+    point_proj_t S;
+    
+    fpcopy751(CurveIsogeny->Montgomery_one, one);
+    fpcopy751(CurveIsogeny->Montgomery_one, one_fp2[0]);
+    fp2div2_751(A,A2);
+    fpcopy751(CurveIsogeny->Montgomery_one,two[0]);
+    fpadd751(two[0], two[0], two[0]);
+    fp2add751(A,two,A24);
+    fp2div2_751(A24,A24);
+    fp2div2_751(A24,A24);
+
+    fp2copy751((felm_t*)&v_3_torsion[r-1], v); //v := 1/(1 + U*r^2); //table lookup
+    fp2copy751(A,two);
+    fp2neg751(two);
+    fp2mul751_mont(two,v,x);  // x = -A*v;
+    fp2mul751_mont(A,x,y2);             
+    fpadd751(y2[0], one, y2[0]);        
+    fp2sqr751_mont(x,temp);
+    fp2add751(temp,y2,y2);
+    fp2mul751_mont(x,y2,y2); // y2 = x*(x^2 + A*x + 1);
+    fpsqr751_mont(y2[0],a2);
+    fpsqr751_mont(y2[1],b2);
+    fpadd751(a2,b2,N);       // N := Fp!norm(y2);
+
+    fpcopy751(N,temp0);
+    for (i = 0; i < 370; i++) {    
+        fpsqr751_mont(temp0, temp0);
+    }
+    for (i = 0; i < 239; i++) {
+        fpsqr751_mont(temp0, temp1);
+        fpmul751_mont(temp0, temp1, temp0);
+    }
+    fpsqr751_mont(temp0,temp1);  // z = N^((p + 1) div 4);
+    fpcorrection751(temp1);
+    fpcorrection751(N);
+    if (fpcompare751(temp1,N) != 0) {
+        fp2neg751(x);
+        fp2sub751(x,A,x);        // x = -x - A;
+    }
+    fp2copy751(x,S->X);
+    fp2copy751(one_fp2,S->Z);
+    Double(S,P,A24,CurveIsogeny->oAbits);   // x, z := Double(A24, x, 1, eA);
+}
+
+
 void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny)
 {
     unsigned int r = 0;
@@ -1351,6 +1470,67 @@ void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2
         fp2correction751(t1w2);
     } while (fp2compare751(t2w1,t1w2) == 0); // Pr[t2/w2 == t1/w1] = 1/4: E[loop length] = 4/3
 
+    // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
+    CompleteMPoint(A,P,R1,CurveIsogeny);    // R1 := CompleteMPoint(EM, A, x1, z1)
+    CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)
+}
+
+
+void BuildOrdinaryE3nBasis_compression(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int *rs, PCurveIsogenyStruct CurveIsogeny)
+{
+    f2elm_t t2w1, t1w2;
+    point_proj_t P, Q, R, S;
+    
+    // 1st basis point:
+    BasePoint3n(A, rs, P, Q, CurveIsogeny);
+    
+    // 2nd basis point:
+    do {
+        BasePoint3n(A, &rs[1], R, S, CurveIsogeny);
+        fp2mul751_mont(S->X,Q->Z,t2w1);
+        fp2mul751_mont(Q->X,S->Z,t1w2);
+        fp2correction751(t2w1);
+        fp2correction751(t1w2);
+    } while (fp2compare751(t2w1,t1w2) == 0); // Pr[t2/w2 == t1/w1] = 1/4: E[loop length] = 4/3
+    // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
+    CompleteMPoint(A,P,R1,CurveIsogeny);    // R1 := CompleteMPoint(EM, A, x1, z1)
+    CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)
+}
+
+
+void BuildOrdinaryE3nBasis_decompression(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int r1, unsigned int r2, PCurveIsogenyStruct CurveIsogeny)
+{
+    f2elm_t t2w1, t1w2;    
+    point_proj_t P, Q, R, S;
+    
+    // 1st basis point:
+    BasePoint3n_decompression(A, r1, P, Q, CurveIsogeny);
+    // 2nd basis point:
+    BasePoint3n_decompression(A, r2, R, S, CurveIsogeny);
+    
+    // Checking for linear independence
+#if !defined(NO_LI_CHECK)
+    fp2mul751_mont(S->X,Q->Z,t2w1);
+    fp2mul751_mont(Q->X,S->Z,t1w2);
+    fp2correction751(t2w1);
+    fp2correction751(t1w2);
+    assert(fp2compare751(t2w1,t1w2) != 0);
+#endif    
+    
+    // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
+    CompleteMPoint(A,P,R1,CurveIsogeny);    // R1 := CompleteMPoint(EM, A, x1, z1)
+    CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)
+}
+
+
+void BuildOrdinaryE3nBasis_decompression_noLItest(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int r1, unsigned int r2, PCurveIsogenyStruct CurveIsogeny)
+{
+    point_proj_t P, R;
+    
+    // 1st basis point:
+    BasePoint3n_decompression_noLItest(A, r1, P, CurveIsogeny);
+    // 2nd basis point:
+    BasePoint3n_decompression_noLItest(A, r2, R, CurveIsogeny);
     // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
     CompleteMPoint(A,P,R1,CurveIsogeny);    // R1 := CompleteMPoint(EM, A, x1, z1)
     CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)
@@ -1391,6 +1571,7 @@ static void dbl_and_line(const point_ext_proj_t P, const f2elm_t A, f2elm_t lx, 
     fp2copy751(XX2, X2);
     fp2copy751(t0, XZ);
 }
+
 
 static void absorb_line(const f2elm_t lx, const f2elm_t ly, const f2elm_t l0, const f2elm_t v0, const point_t P, f2elm_t n, f2elm_t d)
 { // Absorbing line function values during Miller's algorithm.
@@ -1877,7 +2058,7 @@ void Tate_pairings_3_torsion_fast(const point_full_proj_t P, point_full_proj_t *
     f2elm_t X, Y, Z, X2, Y2, Y4, M, S, T, XQ;
     f2elm_t Xp, Yp, Zp, Tp, D, U, Up, Fp;
     f2elm_t L, W, Wp, g, T2, M2, F, F2, d;
-    f2elm_t temp, temp1;//, temp2, temp3;
+    f2elm_t temp, temp1;
     
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     fp2copy751(P->X, X);
@@ -1966,7 +2147,7 @@ void Tate_pairings_3_torsion_fast(const point_full_proj_t P, point_full_proj_t *
                 fp2sub751(temp, Xp, h[j]);      // h = Tp*X_{Qj} - Xp
                 fp2_conj(h[j], temp);
                 fp2mul751_mont(temp, g, g);
-            } else {
+            } else {                
                 fp2mul751_mont(M, h[j], temp);
                 fp2add751(temp, d, g);
             }
@@ -1977,13 +2158,8 @@ void Tate_pairings_3_torsion_fast(const point_full_proj_t P, point_full_proj_t *
         fp2copy751(Xp, X);
         fp2copy751(Yp, Y);
         fp2copy751(Zp, Z);
-        fp2copy751(Tp, T);        
+        fp2copy751(Tp, T);
     }
-    
-    // Just for testing
-//    fp2copy751(Y, temp2);
-//    fp2correction751(temp2);
-//    from_fp2mont(temp2, temp2);    
     
     // final exponentiation:
     mont_n_way_inv(n, t, h);

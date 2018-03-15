@@ -10,8 +10,12 @@
 * Modified by Geovandro C. C. F. Pereira
 *********************************************************************************************/ 
 
+#include <limits.h>
+
 #include "SIDH_internal.h"
 #include "tests/test_extras.h"
+#include "stdio.h"
+#include "string.h"
 
 extern const unsigned int splits_Alice[MAX_Alice];
 extern const unsigned int splits_Bob[MAX_Bob];
@@ -445,6 +449,7 @@ void PublicKeyCompression_A_fast(const unsigned char* PublicKeyA, unsigned char*
     uint64_t Montgomery_Rprime[NWORDS64_ORDER] = {0x1A55482318541298, 0x070A6370DFA12A03, 0xCB1658E0E3823A40, 0xB3B7384EB5DEF3F9, 0xCBCA952F7006EA33, 0x00569EF8EC94864C}; // Value (2^384)^2 mod 3^239
     uint64_t Montgomery_rprime[NWORDS64_ORDER] = {0x48062A91D3AB563D, 0x6CE572751303C2F5, 0x5D1319F3F160EC9D, 0xE35554E8C2D5623A, 0xCA29300232BC79A5, 0x8AAD843D646D78C5}; // Value -(3^239)^-1 mod 2^384
     unsigned int bit;
+    unsigned int rs[2] = {0};
     
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
 
@@ -454,7 +459,7 @@ void PublicKeyCompression_A_fast(const unsigned char* PublicKeyA, unsigned char*
 
     recover_y(PK, phP, phQ, phX, A, CurveIsogeny);
     
-    BuildOrdinaryE3nBasis(A, P, Q, CurveIsogeny);
+    BuildOrdinaryE3nBasis_compression(A, P, Q, rs, CurveIsogeny);
     
     fp2copy751(phP->Z, vec[0]);
     fp2copy751(phQ->Z, vec[1]);
@@ -508,6 +513,8 @@ void PublicKeyCompression_A_fast(const unsigned char* PublicKeyA, unsigned char*
     }
     
     from_fp2mont(A, (felm_t*)&comp[3*NWORDS_ORDER]);
+    memcpy(&comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD)], rs, 1);
+    memcpy(&comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD) + 1], &rs[1], 1);
 }
 
 
@@ -598,14 +605,16 @@ void PublicKeyADecompression_B_fast(const unsigned char* SecretKeyB, const unsig
     digit_t t1[NWORDS_ORDER], t2[NWORDS_ORDER], t3[NWORDS_ORDER], t4[NWORDS_ORDER], vone[NWORDS_ORDER] = {0};
     uint64_t Montgomery_Rprime[NWORDS64_ORDER] = {0x1A55482318541298, 0x070A6370DFA12A03, 0xCB1658E0E3823A40, 0xB3B7384EB5DEF3F9, 0xCBCA952F7006EA33, 0x00569EF8EC94864C}; // Value (2^384)^2 mod 3^239
     uint64_t Montgomery_rprime[NWORDS64_ORDER] = {0x48062A91D3AB563D, 0x6CE572751303C2F5, 0x5D1319F3F160EC9D, 0xE35554E8C2D5623A, 0xCA29300232BC79A5, 0x8AAD843D646D78C5}; // Value -(3^239)^-1 mod 2^384
-    unsigned int bit;
+    unsigned int bit, r1, r2;
     
     vone[0] = 1;
     to_Montgomery_mod_order(vone, vone, CurveIsogeny->Border, (digit_t*)&Montgomery_rprime, (digit_t*)&Montgomery_Rprime);  // Converting to Montgomery representation
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     to_fp2mont((felm_t*)&comp[3*NWORDS_ORDER], A);    // Converting to Montgomery representation
     
-    BuildOrdinaryE3nBasis(A, P, Q, CurveIsogeny);
+    r1 = (unsigned int)((unsigned char)comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD)]);
+    r2 = (unsigned int)((unsigned char)comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD) + 1]);
+    BuildOrdinaryE3nBasis_decompression(A, P, Q, r1, r2, CurveIsogeny);
 
     fp2copy751(P->X,R1->x);
     fp2copy751(P->Y,R1->y);
