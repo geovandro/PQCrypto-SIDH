@@ -1,14 +1,16 @@
 # Faster SIDH key compression is a fork of SIDH v2.0 library
 
 Faster SIDH key compression introduces new algorithms for speeding up the main SIDH (de)compression bottlenecks including the following contributions:
-* faster basis generation for the 2^eA (~14.5x due to entangled bases) and 3^eB torsions, 
+* faster basis generation for the 2^eA (~15.0x due to entangled bases) and 3^eB torsions, 
 * faster Tate pairing computation, 
 * faster algorithm for smooth-order discrete logarithms inspired by the De Feo-Jao-Plut's optimal strategy,
 * faster point tripling formula for the non-projective curve coefficient case,
 * reverse basis decomposition technique to avoid one pairing computation in each compression.
+* shared elligator 2 for faster decompression (up to 2x faster)
 
 
 The related pre-print is available [`here`](http://eprint.iacr.org/2017/1143).
+The initial contributions of this work will appear in [`PQCrypto 2018`](http://www.math.fau.edu/pqcrypto2018/).
 
 
 ### Compilation options
