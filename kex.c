@@ -16,6 +16,7 @@
 #include "tests/test_extras.h"
 #include "stdio.h"
 #include "string.h"
+//#include "stdlib.h"
 
 extern const unsigned int splits_Alice[MAX_Alice];
 extern const unsigned int splits_Bob[MAX_Bob];
@@ -448,18 +449,17 @@ void PublicKeyCompression_A_fast(const unsigned char* PublicKeyA, unsigned char*
     digit_t c0[NWORDS_ORDER], d0[NWORDS_ORDER], c1[NWORDS_ORDER], d1[NWORDS_ORDER];
     uint64_t Montgomery_Rprime[NWORDS64_ORDER] = {0x1A55482318541298, 0x070A6370DFA12A03, 0xCB1658E0E3823A40, 0xB3B7384EB5DEF3F9, 0xCBCA952F7006EA33, 0x00569EF8EC94864C}; // Value (2^384)^2 mod 3^239
     uint64_t Montgomery_rprime[NWORDS64_ORDER] = {0x48062A91D3AB563D, 0x6CE572751303C2F5, 0x5D1319F3F160EC9D, 0xE35554E8C2D5623A, 0xCA29300232BC79A5, 0x8AAD843D646D78C5}; // Value -(3^239)^-1 mod 2^384
-    unsigned int bit;
-    unsigned int rs[2] = {0};
+    unsigned int bit, rs[2] = {0};
     
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
 
-    to_fp2mont(((f2elm_t*)PublicKeyA)[0], ((f2elm_t*)&PK)[0]);    // Converting to Montgomery representation
+    to_fp2mont(((f2elm_t*)PublicKeyA)[0], ((f2elm_t*)&PK)[0]);
     to_fp2mont(((f2elm_t*)PublicKeyA)[1], ((f2elm_t*)&PK)[1]); 
     to_fp2mont(((f2elm_t*)PublicKeyA)[2], ((f2elm_t*)&PK)[2]); 
 
     recover_y(PK, phP, phQ, phX, A, CurveIsogeny);
-    
-    BuildOrdinaryE3nBasis_compression(A, P, Q, rs, CurveIsogeny);
+
+    BuildOrdinaryE3nBasis(A, P, Q, rs, CurveIsogeny);
     
     fp2copy751(phP->Z, vec[0]);
     fp2copy751(phQ->Z, vec[1]);
@@ -513,8 +513,10 @@ void PublicKeyCompression_A_fast(const unsigned char* PublicKeyA, unsigned char*
     }
     
     from_fp2mont(A, (felm_t*)&comp[3*NWORDS_ORDER]);
+#ifdef SHARED_ELLIGATOR    
     memcpy(&comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD)], rs, 1);
     memcpy(&comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD) + 1], &rs[1], 1);
+#endif
 }
 
 
@@ -605,17 +607,26 @@ void PublicKeyADecompression_B_fast(const unsigned char* SecretKeyB, const unsig
     digit_t t1[NWORDS_ORDER], t2[NWORDS_ORDER], t3[NWORDS_ORDER], t4[NWORDS_ORDER], vone[NWORDS_ORDER] = {0};
     uint64_t Montgomery_Rprime[NWORDS64_ORDER] = {0x1A55482318541298, 0x070A6370DFA12A03, 0xCB1658E0E3823A40, 0xB3B7384EB5DEF3F9, 0xCBCA952F7006EA33, 0x00569EF8EC94864C}; // Value (2^384)^2 mod 3^239
     uint64_t Montgomery_rprime[NWORDS64_ORDER] = {0x48062A91D3AB563D, 0x6CE572751303C2F5, 0x5D1319F3F160EC9D, 0xE35554E8C2D5623A, 0xCA29300232BC79A5, 0x8AAD843D646D78C5}; // Value -(3^239)^-1 mod 2^384
-    unsigned int bit, r1, r2;
+    unsigned int bit;
+#ifdef SHARED_ELLIGATOR
+    unsigned int r1, r2;
+#else 
+    unsigned int rs[2];
+#endif
     
     vone[0] = 1;
     to_Montgomery_mod_order(vone, vone, CurveIsogeny->Border, (digit_t*)&Montgomery_rprime, (digit_t*)&Montgomery_Rprime);  // Converting to Montgomery representation
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     to_fp2mont((felm_t*)&comp[3*NWORDS_ORDER], A);    // Converting to Montgomery representation
-    
+
+#ifdef SHARED_ELLIGATOR    
     r1 = (unsigned int)((unsigned char)comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD)]);
     r2 = (unsigned int)((unsigned char)comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD) + 1]);
     BuildOrdinaryE3nBasis_decompression(A, P, Q, r1, r2, CurveIsogeny);
-
+#else     
+    BuildOrdinaryE3nBasis(A, P, Q, rs, CurveIsogeny);
+#endif
+    
     fp2copy751(P->X,R1->x);
     fp2copy751(P->Y,R1->y);
     fp2copy751(Q->X,R2->x);
@@ -738,7 +749,7 @@ void PublicKeyCompression_B(const unsigned char* PublicKeyB, unsigned char* Comp
     to_fp2mont(((f2elm_t*)PublicKeyB)[0], ((f2elm_t*)&PK)[0]);    // Converting to Montgomery representation
     to_fp2mont(((f2elm_t*)PublicKeyB)[1], ((f2elm_t*)&PK)[1]); 
     to_fp2mont(((f2elm_t*)PublicKeyB)[2], ((f2elm_t*)&PK)[2]); 
-
+    
     recover_y(PK, phP, phQ, phX, A, CurveIsogeny);
     generate_2_torsion_basis(A, P, Q, CurveIsogeny);
     fp2copy751(P->Z, vec[0]);
@@ -746,7 +757,7 @@ void PublicKeyCompression_B(const unsigned char* PublicKeyB, unsigned char* Comp
     fp2copy751(phP->Z, vec[2]);
     fp2copy751(phQ->Z, vec[3]);
     mont_n_way_inv(vec, 4, Zinv);
-
+    
     fp2mul751_mont(P->X, Zinv[0], R1->x);
     fp2mul751_mont(P->Y, Zinv[0], R1->y);
     fp2mul751_mont(Q->X, Zinv[1], R2->x);
@@ -755,9 +766,9 @@ void PublicKeyCompression_B(const unsigned char* PublicKeyB, unsigned char* Comp
     fp2mul751_mont(phP->Y, Zinv[2], phiP->y);
     fp2mul751_mont(phQ->X, Zinv[3], phiQ->x);
     fp2mul751_mont(phQ->Y, Zinv[3], phiQ->y);
-
+    
     ph2(phiP, phiQ, R1, R2, A, (uint64_t*)a0, (uint64_t*)b0, (uint64_t*)a1, (uint64_t*)b1, CurveIsogeny);
-
+    
     if ((a0[0] & 1) == 1) {  // Storing [b1*a0inv, a1*a0inv, b0*a0inv] and setting bit384 to 0
         inv_mod_orderA(a0, inv);        
         multiply(b0, inv, tmp, NWORDS_ORDER);
@@ -820,7 +831,7 @@ void PublicKeyCompression_B_fast(const unsigned char* PublicKeyB, unsigned char*
     fp2mul751_mont(phQ->Y, Zinv[1], phQ->Y);
     fp2copy751(one, phQ->Z);
     
-    generate_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);
+    get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);
     
     ph2_fast(phP, phQ, S1, S2, A, (uint64_t*)c0, (uint64_t*)d0, (uint64_t*)c1, (uint64_t*)d1, CurveIsogeny);
 
@@ -943,7 +954,7 @@ void PublicKeyBDecompression_A_fast(const unsigned char* SecretKeyA, const unsig
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     to_fp2mont((felm_t*)&comp[3*NWORDS_ORDER], A);    // Converting to Montgomery representation
 
-    generate_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);
+    get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);
 
     fp2add751(A, one, A24);
     fp2add751(A24, one, A24);

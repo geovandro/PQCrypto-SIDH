@@ -21,8 +21,8 @@
     #define BENCH_LOOPS        10      // Number of iterations per bench 
     #define TEST_LOOPS         10      // Number of iterations per test
 #else
-    #define BENCH_LOOPS      3000       
-    #define TEST_LOOPS         20    
+    #define BENCH_LOOPS       700       
+    #define TEST_LOOPS         50    
 #endif
 #define BIGMONT_TEST_LOOPS     10      // Number of iterations per BigMont test
 
@@ -122,18 +122,22 @@ CRYPTO_STATUS cryptotest_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
         
 
     // Allocating memory for private keys, public keys and shared secrets
-    PrivateKeyA = (unsigned char*)calloc(1, obytes);                   // One element in [1, order]  
+    PrivateKeyA = (unsigned char*)calloc(1, obytes);                     // One element in [1, order]  
     PrivateKeyB = (unsigned char*)calloc(1, obytes);
-    PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);                // Three elements in GF(p^2)
+    PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);                  // Three elements in GF(p^2)
     PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
-    PublicKeyA_tmp = (unsigned char*)calloc(1, 3*2*pbytes);            // Three elements in GF(p^2)
+    PublicKeyA_tmp = (unsigned char*)calloc(1, 3*2*pbytes);              // Three elements in GF(p^2)
     PublicKeyB_tmp = (unsigned char*)calloc(1, 3*2*pbytes);
-    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);    // Three elements in [1, order] plus one field element
+#ifdef SHARED_ELLIGATOR    
+    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);  // Three elements in [1, order] plus one field element
+#else
+    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);      // Three elements in [1, order]
+#endif    
     CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);
-    SharedSecretA = (unsigned char*)calloc(1, 2*pbytes);               // One element in GF(p^2)  
+    SharedSecretA = (unsigned char*)calloc(1, 2*pbytes);                 // One element in GF(p^2)  
     SharedSecretB = (unsigned char*)calloc(1, 2*pbytes);
-    R = (unsigned char*)calloc(1, 2*2*pbytes);                         // One point in (X:Z) coordinates 
-    A = (unsigned char*)calloc(1, 2*pbytes);                           // One element in GF(p^2)  
+    R = (unsigned char*)calloc(1, 2*2*pbytes);                           // One point in (X:Z) coordinates 
+    A = (unsigned char*)calloc(1, 2*pbytes);                             // One element in GF(p^2)  
     
     printf("\n\nTESTING EPHEMERAL ISOGENY-BASED KEY EXCHANGE USING COMPRESSION \n");
     printf("--------------------------------------------------------------------------------------------------------\n\n");
@@ -370,7 +374,11 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     PrivateKeyB = (unsigned char*)calloc(1, obytes);
     PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);                // Three elements in GF(p^2)
     PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
-    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);    // Three elements in [1, order] and one field element  
+#ifdef SHARED_ELLIGATOR    
+    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);  // Three elements in [1, order] plus one field element
+#else
+    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);      // Three elements in [1, order]
+#endif       
     CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes); 
     SharedSecretA = (unsigned char*)calloc(1, 2*pbytes);               // One element in GF(p^2)
     SharedSecretB = (unsigned char*)calloc(1, 2*pbytes); 
@@ -455,7 +463,7 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         cycles1 = cpucycles();
-        Status = EphemeralSecretAgreement_Compression_B(PrivateKeyB, R, A, SharedSecretB, CurveIsogeny);    // Bob computes his shared secret using the decompressed Alice's public key data
+        EphemeralSecretAgreement_Compression_B(PrivateKeyB, R, A, SharedSecretB, CurveIsogeny);    // Bob computes his shared secret using the decompressed Alice's public key data
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
@@ -465,29 +473,23 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
 
     // Benchmarking Bob's public key compression
     cycles = 0;
-    for (n = 0; n < BENCH_LOOPS; n++)
-    {        
-        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
+    msrcycles = 0;
+    EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
+    for (n = 0; n < BENCH_LOOPS; n++) {                
           
         cycles1 = cpucycles();
         PublicKeyCompression_B_fast(PublicKeyB, CompressedPKB, CurveIsogeny); 
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);        
-    }    
-    
-    msrcycles = 0;
-    for (n = 0; n < BENCH_LOOPS; n++)
-    {        
-        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
-        
+
         cycles1 = cpucycles();
-        PublicKeyCompression_B(PublicKeyB, CompressedPKB, CurveIsogeny);                    
+        PublicKeyCompression_B(PublicKeyB, CompressedPKB, CurveIsogeny);                            
         cycles2 = cpucycles();
         msrcycles = msrcycles+(cycles2-cycles1);
     }
     printf("\n  Bob's public key compression runs in ......................... %10lld ", msrcycles/BENCH_LOOPS); print_unit; 
     printf("\n  Fast Bob's public key compression runs in .................... %10lld ", cycles/BENCH_LOOPS); print_unit; 
-    printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
+    printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);    
     printf("\n");
     
     // Benchmarking Alice's decompression
@@ -607,7 +609,7 @@ cleanup:
 int main()
 {
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;
-
+/*
     Status = cryptotest_kex(&CurveIsogeny_SIDHp751);             // Test key exchange system "SIDHp751"
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
@@ -619,25 +621,25 @@ int main()
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-
+/*/
     Status = cryptotest_kex_compress(&CurveIsogeny_SIDHp751);    // Test key exchange system "SIDHp751" using compression
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-
+//*/
     Status = cryptorun_kex_compress(&CurveIsogeny_SIDHp751);     // Benchmark key exchange system "SIDHp751" using compression
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-    
+/*    
     Status = cryptotest_BigMont(&CurveIsogeny_SIDHp751);         // Test elliptic curve "BigMont"
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-
+*/
     Status = cryptorun_BigMont(&CurveIsogeny_SIDHp751);          // Benchmark elliptic curve "BigMont"
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));

@@ -9,12 +9,19 @@
 
 #include "SIDH_internal.h"
 #include "tests/test_extras.h"
- 
-f2elm_t **ph2_T;
-f2elm_t **ph3_T;
+#include <string.h>
+
+const f2elm_t **ph2_T;
+#if (W_3 == 1)
+const f2elm_t **ph3_T;
+#else
+const f2elm_t **ph3_T1;
+const f2elm_t **ph3_T2;
+#endif
+
 
 #if (W_2 == 1)
-const int ph2_path[373] = { // w = 1
+const int ph2_path[PLEN_2] = { // w = 1
 0, 0, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4, 5, 5, 5, 7, 7, 7, 7, 8, 8, 8, 9, 9, 9, 9, 11, 
 12, 12, 12, 13, 12, 13, 13, 13, 13, 14, 15, 16, 17, 18, 19, 16, 16, 17, 17, 18, 
 19, 20, 20, 20, 20, 20, 20, 21, 21, 22, 22, 23, 22, 22, 23, 24, 25, 26, 27, 28, 
@@ -37,7 +44,7 @@ const int ph2_path[373] = { // w = 1
 142, 139, 140, 141, 142, 143, 143, 143, 143, 144, 144, 143
 };
 #elif (W_2 == 2)
-const int ph2_path[187] = { // w = 2
+const int ph2_path[PLEN_2] = { // w = 2
 0, 0, 1, 2, 2, 3, 4, 4, 4, 5, 5, 6, 7, 7, 7, 8, 8, 9, 9, 10, 11, 12, 12, 13, 12, 
 14, 15, 15, 15, 15, 16, 16, 16, 17, 18, 18, 19, 20, 21, 22, 21, 21, 25, 24, 24, 
 25, 25, 26, 27, 27, 27, 28, 29, 27, 28, 30, 31, 30, 31, 31, 31, 31, 31, 32, 32, 
@@ -50,7 +57,7 @@ const int ph2_path[187] = { // w = 2
 99, 103
 };
 #elif (W_2 == 4)
-const int ph2_path[94] = { // w = 4
+const int ph2_path[PLEN_2] = { // w = 4
 0, 0, 1, 2, 3, 3, 4, 4, 5, 6, 7, 7, 8, 8, 9, 10, 10, 12, 12, 13, 12, 13, 14, 15, 
 16, 16, 17, 18, 18, 18, 19, 19, 20, 21, 21, 22, 22, 23, 24, 25, 26, 27, 27, 27, 
 28, 28, 28, 29, 31, 32, 32, 33, 33, 33, 33, 34, 35, 35, 36, 37, 38, 39, 40, 41, 
@@ -60,57 +67,43 @@ const int ph2_path[94] = { // w = 4
 #endif
 
 
-const int ph3_path[240] = {
-0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 11, 
-11, 12, 12, 13, 14, 15, 16, 16, 16, 16, 16, 16, 17, 17, 17, 17, 20, 17, 17, 18, 
-20, 20, 21, 21, 21, 23, 24, 22, 23, 24, 25, 26, 27, 28, 28, 29, 30, 31, 32, 32, 
-32, 32, 32, 32, 33, 33, 33, 34, 33, 33, 34, 35, 36, 33, 38, 34, 35, 36, 37, 38, 
-38, 39, 38, 38, 38, 39, 41, 38, 43, 38, 39, 39, 41, 42, 42, 44, 46, 46, 47, 47, 
-48, 48, 48, 48, 48, 49, 50, 54, 52, 53, 54, 55, 56, 57, 57, 58, 58, 59, 60, 61, 
-62, 63, 64, 64, 64, 64, 64, 64, 64, 65, 65, 65, 65, 65, 65, 67, 68, 68, 67, 65, 
-67, 68, 65, 65, 65, 67, 68, 68, 69, 69, 70, 71, 71, 71, 71, 72, 72, 71, 72, 75, 
-76, 71, 72, 73, 74, 72, 71, 77, 78, 73, 72, 72, 73, 77, 78, 76, 77, 81, 82, 80, 
-81, 82, 83, 84, 85, 86, 86, 86, 87, 86, 86, 86, 87, 86, 86, 87, 86, 89, 94, 86, 
-87, 87, 94, 91, 92, 91, 92, 94, 94, 96, 103, 97, 104, 101, 101, 101, 102, 102, 
-106, 105, 105, 106, 106, 106, 106, 107, 109, 110, 111, 109, 112, 110, 115, 113
+#if (W_3 == 1)
+const int ph3_path[PLEN_3] = { // w = 1
+ 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 7, 8, 8, 8, 8, 9, 9, 10, 9, 9, 10, 
+ 11, 12, 12, 13, 14, 15, 16, 16, 16, 16, 16, 16, 17, 17, 18, 19, 20, 17, 17, 18, 
+ 19, 20, 21, 22, 22, 21, 21, 22, 24, 27, 25, 26, 27, 27, 28, 29, 30, 31, 32, 32, 
+ 32, 32, 32, 32, 33, 33, 33, 33, 33, 33, 33, 33, 36, 33, 33, 33, 34, 36, 36, 37, 
+ 38, 38, 38, 40, 41, 39, 38, 38, 40, 41, 39, 40, 43, 45, 46, 44, 45, 48, 46, 47, 
+ 48, 48, 48, 48, 48, 48, 49, 54, 51, 52, 53, 54, 55, 56, 57, 58, 58, 59, 61, 61, 
+ 62, 63, 64, 64, 64, 64, 64, 64, 64,  65, 65, 66, 65, 66, 66, 66, 66, 65, 69, 69, 
+ 68, 66, 65, 65, 69, 67, 67, 67, 68, 70, 70, 71, 71, 71, 71, 71, 72, 71, 71, 71, 
+ 71, 72, 73, 71, 71, 81, 83, 71, 71, 72, 76, 78,  73, 76, 86, 78, 77, 78, 81, 82, 
+ 80, 81, 82, 83, 84, 85, 86, 86, 86, 86, 86, 86, 86, 86, 86, 88, 86, 90, 86, 86, 
+ 89, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 101, 105, 105, 101, 102, 
+ 106, 105, 105, 106, 106, 108, 107, 106, 106, 110, 108, 108, 110, 110, 112, 113  
 };
+#elif (W_3 == 3)
+const int ph3_path[PLEN_3] = { // w = 3
+0, 0, 1, 2, 3, 3, 4, 4, 5, 6, 6, 8, 8, 9, 9, 9, 10, 11, 12, 13, 13, 13, 14, 15, 
+16, 17, 17, 18, 19, 19, 19, 19, 20, 21, 22, 22, 23, 24, 25, 26, 27, 28, 28, 28, 
+28, 28, 29, 33, 30, 32, 32, 33, 34, 34, 35, 36, 37, 38, 39, 40, 41, 42, 41, 41, 
+42, 42, 44, 42, 43, 44, 43, 44, 45, 47, 50, 48, 51, 51, 51, 52, 52
+};
+#elif (W_3 == 6)
+const int ph3_path[PLEN_3] = { // w = 6
+0, 0, 1, 2, 3, 4, 5, 6, 6, 7, 8, 8, 9, 10, 10, 11, 12, 13, 13, 14, 15, 16, 16, 
+17, 18, 19, 20, 21, 21, 22, 23, 24, 25, 26, 27, 27, 28, 29, 30, 30, 31
+};
+#endif
 
 
-void Traverse(f2elm_t r, int j, int k, int z, const int *P, const f2elm_t **T, 
-              int *D, int Dlen, int ell, int w, PCurveIsogenyStruct CurveIsogeny)
-{
-    f2elm_t rp = {0}, s = {0};
+int intexp(int a, int x) {
+    int r = a;
     
-    if (z > 1) {
-        int t = P[z];
-        fp2copy751(r, rp);
-        for (int i = 0; i < z-t; i++) {
-            if ((ell & 1) == 0) {
-                for (int j = 0; j < w; j++)
-                    sqr_Fp2_cycl(rp, CurveIsogeny->Montgomery_one);
-            } else {
-                for (int j = 0; j < w; j++)
-                    cube_Fp2_cycl(rp, CurveIsogeny->Montgomery_one);            
-            }
-        }
-        Traverse(rp, j + (z - t), k, t, P, T, D, Dlen, ell, w, CurveIsogeny);  
-        
-        fp2copy751(r, rp);
-        for (int h = k; h < k + t; h++)
-            fp2mul751_mont(rp, T[j + h][D[h]], rp);
-        
-        Traverse(rp, j, k + t, z - t, P, T, D, Dlen, ell, w, CurveIsogeny);
-    } else {
-        for (int t = 0; t < ell; t++) {         
-            fp2_conj(T[Dlen - 1][t], s);
-            fp2correction751(s);
-            fp2correction751(r);
-            if (fp2compare751(s,r) == 0) {
-                D[k] = t;
-                break;
-            }
-        }
-    }
+    for (int i = 0; i < x-1; i++)
+        r *= a;
+    
+    return r;
 }
 
 
@@ -142,3 +135,196 @@ void Precomp(f2elm_t invg, f2elm_t **T, int ell, int w, int e, PCurveIsogenyStru
         for (int j = 0; j < ell; j++)
             fp2correction751(T[i][j]);
 }
+
+
+void PrecompT1(f2elm_t invg, f2elm_t **T1, int ell, int w, int e, PCurveIsogenyStruct CurveIsogeny) 
+{   // assuming w is at most 8 bits (w in {2, ..., 2^8-1)
+    felm_t zero = {0};
+    int ellw = intexp(ell,w);
+    
+    for (int i = 0; i < e/w+1; i++) {     
+        for (int j = 0; j < ellw; j++) {
+            fpcopy751(zero, T1[i][j][1]);
+            fpcopy751(CurveIsogeny->Montgomery_one, T1[i][j][0]);
+        }
+    }
+    for (int d = 1; d < ellw; d++)
+        fp2mul751_mont(invg, T1[0][d - 1], T1[0][d]);
+    
+    for (int u = 1; u < e/w+1; u++) {
+        for (int d = 1; d < ellw; d++) {
+            fp2copy751(T1[u - 1][d], T1[u][d]);
+            if ((ell & 1) == 0) {
+                for (int j = 0; j < w; j++)
+                    sqr_Fp2_cycl(T1[u][d], CurveIsogeny->Montgomery_one);
+            } else {
+                for (int j = 0; j < w; j++)
+                    cube_Fp2_cycl(T1[u][d], CurveIsogeny->Montgomery_one);            
+            }            
+        }
+    }
+    
+    for (int i = 0; i < e/w+1; i++)
+        for (int j = 0; j < ellw; j++)
+            fp2correction751(T1[i][j]);
+}
+
+
+void PrecompT2(f2elm_t invg, f2elm_t **T2, int ell, int w, int e, PCurveIsogenyStruct CurveIsogeny) 
+{   // Assume w is at most 8 bits (w in {2, ..., 2^8-1)
+    uint64_t emodw = e % w;    
+    uint64_t ell_emodw = (uint64_t)intexp(ell,emodw);
+    uint64_t ellw = intexp(ell,w);
+    felm_t zero = {0};
+    f2elm_t invg_emodw; 
+    int bits_emodw, bits_ell_emodw;
+#if (W_3 == 3)
+    bits_emodw = 2;
+    bits_ell_emodw = 4;
+#elif (W_3 == 6)    
+    bits_emodw = 3;
+    bits_ell_emodw = 8;    
+#endif 
+
+    for (int i = 0; i < e/w+1; i++) {     
+        for (int j = 0; j < ellw; j++) {
+            fpcopy751(zero, T2[i][j][1]);
+            fpcopy751(CurveIsogeny->Montgomery_one, T2[i][j][0]);
+        }
+    }
+    
+    exp_Fp2_cycl(invg, &emodw, CurveIsogeny->Montgomery_one, invg_emodw, bits_emodw);    
+    for (long d = 1; d < ellw; d++) {
+        fp2mul751_mont(invg, T2[0][d - 1], T2[0][d]);
+        exp_Fp2_cycl(T2[0][d], &ell_emodw, CurveIsogeny->Montgomery_one, T2[1][d], bits_ell_emodw);
+    }
+    
+    
+    for (int u = 2; u < e/w+1; u++) {
+        for (int d = 1; d < ellw; d++) {
+            fp2copy751(T2[u - 1][d], T2[u][d]);
+            if ((ell & 1) == 0) {
+                for (int j = 0; j < w; j++)
+                    sqr_Fp2_cycl(T2[u][d], CurveIsogeny->Montgomery_one);
+            } else {
+                for (int j = 0; j < w; j++)
+                    cube_Fp2_cycl(T2[u][d], CurveIsogeny->Montgomery_one);            
+            }            
+        }
+    }    
+    
+    for (int i = 0; i < e/w+1; i++)
+        for (int j = 0; j < ellw; j++)
+            fp2correction751(T2[i][j]);
+}
+
+
+void Traverse_w_div_e(f2elm_t r, int j, int k, int z, const int *P, 
+                      const f2elm_t **T, int *D, int Dlen, int ell, int w, PCurveIsogenyStruct CurveIsogeny)
+{ // Assume the window size w divides the exponent e
+    f2elm_t rp = {0};
+    
+    if (z > 1) {
+        int t = P[z];
+        fp2copy751(r, rp);
+        for (int i = 0; i < z-t; i++) {
+            if ((ell & 1) == 0) {
+                for (int j = 0; j < w; j++)
+                    sqr_Fp2_cycl(rp, CurveIsogeny->Montgomery_one);
+            } else {
+                for (int j = 0; j < w; j++)
+                    cube_Fp2_cycl(rp, CurveIsogeny->Montgomery_one);            
+            }
+        }
+        Traverse_w_div_e(rp, j + (z - t), k, t, P, T, D, Dlen, ell, w, CurveIsogeny);  
+        
+        fp2copy751(r, rp);
+        for (int h = k; h < k + t; h++)
+            fp2mul751_mont(rp, T[j + h][D[h]], rp);
+        
+        Traverse_w_div_e(rp, j, k + t, z - t, P, T, D, Dlen, ell, w, CurveIsogeny);
+    } else {
+        fp2_conj(r, rp);
+        fp2correction751(rp);
+        for (int t = 0; t < ell; t++) {         
+            if (memcmp(T[Dlen - 1][t], rp, 2*((CurveIsogeny->pbits+7)/8)) == 0) {
+                D[k] = t;
+                break;
+            }
+        }
+    }
+}
+
+
+void Traverse_w_notdiv_e(f2elm_t r, int j, int k, int z, const int *P, 
+                         const f2elm_t **T1, const f2elm_t **T2, int *D, 
+                         int Dlen, int ell, int ellw, int ell_emodw, int w, 
+                         int e, PCurveIsogenyStruct CurveIsogeny)
+{ // Dedicate windowed Pohlig-Hellman when w does not divide the exponent e in solving DLOG in mu_{ell^e}
+    f2elm_t rp = {0};            
+    
+    if (z > 1) {
+        int t = P[z], goleft;
+        fp2copy751(r, rp);
+        
+        goleft = (j > 0) ? w*(z-t) : (e % w) + w*(z-t-1);        
+        for (int i = 0; i < goleft; i++) {
+            if ((ell & 1) == 0)
+                sqr_Fp2_cycl(rp, CurveIsogeny->Montgomery_one);
+            else
+                cube_Fp2_cycl(rp, CurveIsogeny->Montgomery_one);            
+        }
+
+        Traverse_w_notdiv_e(rp, j + (z - t), k, t, P, T1, T2, D, Dlen, ell, ellw, ell_emodw, w, e, CurveIsogeny);  
+        
+        fp2copy751(r, rp);
+        for (int h = k; h < k + t; h++) {
+            if (j > 0)        
+                fp2mul751_mont(rp, T2[j + h][D[h]], rp);
+            else
+                fp2mul751_mont(rp, T1[j + h][D[h]], rp);
+        }
+        
+        Traverse_w_notdiv_e(rp, j, k + t, z - t, P, T1, T2, D, Dlen, ell, ellw, ell_emodw, w, e, CurveIsogeny);
+    } else {
+        fp2_conj(r, rp);
+        fp2correction751(rp);
+        if (!(j == 0 && k == Dlen - 1)) {
+            for (int t = 0; t < ellw; t++) {
+                if (memcmp(T2[Dlen-1][t], rp, 2*((CurveIsogeny->pbits+7)/8)) == 0) {
+                    D[k] = t;
+                    break;             
+                }                
+            }
+        } else {
+            for (int t = 0; t < ell_emodw; t++) {     
+                if (memcmp(T1[Dlen - 1][t],rp, 2*((CurveIsogeny->pbits+7)/8)) == 0) {         
+                    D[k] = t;
+                    break;                
+                }            
+            }
+        }
+    }
+}
+
+
+void solve_dlog(f2elm_t r, int *D, uint64_t* d, int ell, PCurveIsogenyStruct CurveIsogeny)
+{   
+    if (ell == 2) {
+        if (CurveIsogeny->oAbits % W_2 == 0) {
+            Traverse_w_div_e(r, 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);            
+            from_base(D, d, DLEN_2, ELL2_W);
+        }
+    } else if (ell == 3) {
+#if (W_3 == 1)
+        Traverse_w_div_e(r, 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, ELL3_W, W_3, CurveIsogeny);
+#else           
+        int ell_emodw = intexp(ell,CurveIsogeny->eB % W_3);
+        Traverse_w_notdiv_e(r, 0, 0, PLEN_3 - 1, ph3_path, ph3_T1, ph3_T2, D, DLEN_3, ell, ELL3_W, ell_emodw, W_3, CurveIsogeny->eB, CurveIsogeny);        
+#endif        
+        from_base(D, d, DLEN_3, ELL3_W);        
+    }    
+}
+
+
+

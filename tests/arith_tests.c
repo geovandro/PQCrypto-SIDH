@@ -16,14 +16,20 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+
 extern const unsigned int splits_Alice[MAX_Alice];
 extern const unsigned int splits_Bob[MAX_Bob];
 
 extern const int ph2_path[PLEN_2];
 extern const int ph3_path[PLEN_3];
-extern const f2elm_t **ph2_T;
-extern const f2elm_t **ph3_T;
 
+extern const f2elm_t **ph2_T;
+#if (W_3 == 1)
+extern const f2elm_t **ph3_T;
+#else
+extern const f2elm_t **ph3_T1;
+extern const f2elm_t **ph3_T2;
+#endif
 
 // Benchmark and test parameters  
 #if defined(GENERIC_IMPLEMENTATION) 
@@ -35,7 +41,7 @@ extern const f2elm_t **ph3_T;
     #define ECPH_TEST_LOOPS        10       // Number of iterations per Pohlig-Hellman test
     #define COMP_TEST_LOOPS        10       // Number of iterations per Pohlig-Hellman test
 #else
-    #define BENCH_LOOPS        170000 
+    #define BENCH_LOOPS        170000
     #define SMALL_BENCH_LOOPS   10000       
     #define TEST_LOOPS            100       
     #define ECPT_TEST_LOOPS        20       
@@ -570,7 +576,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
 {
     bool OK = true;
     int n;
-    unsigned long long msrcycles, cycles, cycles_det, cycles_det_noli, cycles1, cycles2, msr;
+    unsigned long long msrcycles, cycles, cycles_det, cycles_det_noli, cycles1, cycles2;
     f2elm_t A24, C24, A4, A, C, coeff[5], one = {0};
     point_proj_t P, Q;
     point_full_proj_t R1, R2;
@@ -656,13 +662,12 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     cycles = 0;
     for (n = 0; n < SMALL_BENCH_LOOPS; n++)
     {
-        //fp2random751_test(A4); fp2random751_test(C);        
         EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);
         to_fp2mont(((f2elm_t*)PublicKeyA)[0], ((f2elm_t*)&PK)[0]);    // Converting to Montgomery representation
         to_fp2mont(((f2elm_t*)PublicKeyA)[1], ((f2elm_t*)&PK)[1]); 
         to_fp2mont(((f2elm_t*)PublicKeyA)[2], ((f2elm_t*)&PK)[2]);         
         get_A(PK[0], PK[1], PK[2], A, CurveIsogeny);       
-        BuildOrdinaryE3nBasis(A, R1, R2, CurveIsogeny);
+        BuildOrdinaryE3nBasis(A, R1, R2, rs, CurveIsogeny);
         fp2copy751(one, C);
         fp2copy751(R1->X, P->X);
         fp2copy751(R1->Z, P->Z); // P is full order and can be tripled 239 times until getting zero
@@ -730,7 +735,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
         msrcycles = msrcycles+(cycles2-cycles1);
         
         cycles1 = cpucycles(); 
-        generate_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny); // Entangled basis
+        get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny); // Entangled basis
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
     }
@@ -761,12 +766,12 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
         
         
         cycles1 = cpucycles(); 
-        BuildOrdinaryE3nBasis(A, R1, R2, CurveIsogeny); // Entangled basis
+        BuildOrdinaryE3nBasis(A, R1, R2, rs, CurveIsogeny); // Entangled basis
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
         
         rs[0] = 0; rs[1] = 0;        
-        BuildOrdinaryE3nBasis_compression(A, R1, R2, rs, CurveIsogeny);
+        BuildOrdinaryE3nBasis(A, R1, R2, rs, CurveIsogeny);
         cycles1 = cpucycles(); 
         BuildOrdinaryE3nBasis_decompression(A, R1, R2, rs[0], rs[1], CurveIsogeny);
         cycles2 = cpucycles();
@@ -949,14 +954,18 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
     int D2[DLEN_2], D3[DLEN_3];
     unsigned int pbytes = (CurveIsogenyData->pwordbits + 7)/8;    // Number of bytes in a field element 
     unsigned int obytes = (CurveIsogenyData->owordbits + 7)/8;    // Number of bytes in an element in [1, order]    
+    unsigned int rs[2];
     unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB, *CompressedPKA, *CompressedPKB;
     bool OK = true;
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;    
 
     PrivateKeyA = (unsigned char*)calloc(1, obytes);                   // One element in [1, order]  
     PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);                // Three elements in GF(p^2)
+#ifndef SHARED_ELLIGATOR    
     CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);    // Three elements in [1, order] plus one field element    
-    
+#else
+    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);    // Three elements in [1, order] plus one field element    
+#endif    
     PrivateKeyB = (unsigned char*)calloc(1, obytes);    
     PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
     CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes); 
@@ -1007,7 +1016,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         cycles2 = cpucycles();
         msrcycles = msrcycles + (cycles2-cycles1);
         
-        generate_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny); 
+        get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny); 
         
         cycles1 = cpucycles(); 
         Tate_4_pairings_2_torsion(phP, phQ, S1, S2, A, n, CurveIsogeny);
@@ -1031,8 +1040,8 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
 
         recover_y(PK_A, phP, phQ, phX, A, CurveIsogeny);
 
-        generate_3_torsion_basis(A, P, Q, CurveIsogeny);
-        //BuildOrdinaryE3nBasis(A, P, Q, CurveIsogeny);
+        //generate_3_torsion_basis(A, P, Q, CurveIsogeny);
+        BuildOrdinaryE3nBasis(A, P, Q, rs, CurveIsogeny);
         
         fp2copy751(P->Z, vec[0]);
         fp2copy751(Q->Z, vec[1]);
@@ -1062,7 +1071,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
     printf("\n  Four faster pairings 3-torsion ................................. %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");
-    
+
     // Benchmark Discrete Logs
     EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);
     
@@ -1072,7 +1081,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
 
     recover_y(PK_A, phP, phQ, phX, A, CurveIsogeny); 
 
-    BuildOrdinaryE3nBasis(A, P, Q, CurveIsogeny);
+    BuildOrdinaryE3nBasis(A, P, Q, rs, CurveIsogeny);
 
     fp2copy751(phP->Z, vec[0]);
     fp2copy751(phQ->Z, vec[1]);
@@ -1107,14 +1116,12 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         msrcycles = msrcycles + (cycles2-cycles1);
 
         cycles1 = cpucycles();
-        for (int i = 0; i < DLEN_3; i++)  D3[i] = -1;          
-        Traverse(n[0], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D3, DLEN_3, 3, W_3, CurveIsogeny);
-        from_base(D3, digit, DLEN_3, 3);
+        solve_dlog(n[0], D3, digit, 3, CurveIsogeny);        
         cycles2 = cpucycles();
         cycles = cycles + (cycles2-cycles1);
     }    
     printf("\n  Discrete logs 3-torsion  ........................................ %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
-    printf("\n  Fast Discrete logs 3-torsion (w = 1)............................. %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  Fast Discrete logs 3-torsion (w = %d)............................. %7lld ", W_3, cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");
     
@@ -1138,7 +1145,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         fp2mul751_mont(phQ->X, Zinv[1], phiQ->x);
         fp2mul751_mont(phQ->Y, Zinv[1], phiQ->y);           
 
-        generate_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);       
+        get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);       
 
         Tate_pairings_2_torsion(phiP, phiQ, S1, S2, A, m, CurveIsogeny);        
         
@@ -1152,9 +1159,9 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         Tate_4_pairings_2_torsion(phP, phQ, S1, S2, A, n, CurveIsogeny);         
         
         cycles1 = cpucycles();
-        for (int i = 0; i < DLEN_2; i++)  D2[i] = -1;    
-        Traverse(n[0], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D2, DLEN_2, ELL2_W, W_2, CurveIsogeny);
-        from_base(D2, digit, DLEN_2, ELL2_W);          
+        for (int i = 0; i < DLEN_2; i++)  D2[i] = -1;          
+     
+        solve_dlog(n[0], D2, digit, 2, CurveIsogeny);
         cycles2 = cpucycles();
         cycles = cycles + (cycles2-cycles1);
     }    

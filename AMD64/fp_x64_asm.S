@@ -24,16 +24,7 @@
 #define p751p1_9   0x8562B5045CB25748
 #define p751p1_10  0x0E12909F97BADC66
 #define p751p1_11  0x00006FE5D541F71C
-
-#define p751_0     0xFFFFFFFFFFFFFFFF
-#define p751_5     0xEEAFFFFFFFFFFFFF
-#define p751_6     0xE3EC968549F878A8
-#define p751_7     0xDA959B1A13F7CC76
-#define p751_8     0x084E9867D6EBE876
-#define p751_9     0x8562B5045CB25748
-#define p751_10    0x0E12909F97BADC66
-#define p751_11    0x00006FE5D541F71C
-
+// p751 x 2
 #define p751x2_0   0xFFFFFFFFFFFFFFFE
 #define p751x2_1   0xFFFFFFFFFFFFFFFF
 #define p751x2_5   0xDD5FFFFFFFFFFFFF
@@ -50,7 +41,7 @@
 //  Field addition
 //  Operation: c [reg_p3] = a [reg_p1] + b [reg_p2]
 //*********************************************************************** 
-#if defined(__APPLE__)
+#if defined(__ASM_UNDER__)
 .global _fpadd751_asm
 _fpadd751_asm:
 #else
@@ -90,7 +81,7 @@ fpadd751_asm:
   adc    rax, [reg_p2+88] 
   mov    [reg_p3+88], rax
 
-  movq   rax, p751x2_0
+  movq   rax, p751x2_0  
   sub    r8, rax
   movq   rax, p751x2_1
   sbb    r9, rax
@@ -196,7 +187,7 @@ fpadd751_asm:
 //  Field subtraction
 //  Operation: c [reg_p3] = a [reg_p1] - b [reg_p2]
 //*********************************************************************** 
-#if defined(__APPLE__)
+#if defined(__ASM_UNDER__)
 .global _fpsub751_asm
 _fpsub751_asm:
 #else
@@ -316,7 +307,7 @@ fpsub751_asm:
 //  Operation: c [reg_p3] = a [reg_p1] * b [reg_p2]
 //  NOTE: a=c or b=c are not allowed
 //***********************************************************************
-#if defined(__APPLE__)
+#if defined(__ASM_UNDER__)
 .global _mul751_asm
 _mul751_asm:
 #else
@@ -1264,7 +1255,7 @@ mul751_asm:
 //  Operation: c [reg_p2] = a [reg_p1]
 //  NOTE: a=c is not allowed
 //*********************************************************************** 
-#if defined(__APPLE__)
+#if defined(__ASM_UNDER__)
 .global _rdc751_asm
 _rdc751_asm:
 #else
@@ -1888,7 +1879,7 @@ rdc751_asm:
 //  751-bit multiprecision addition
 //  Operation: c [reg_p3] = a [reg_p1] + b [reg_p2]
 //*********************************************************************** 
-#if defined(__APPLE__)
+#if defined(__ASM_UNDER__)
 .global _mp_add751_asm
 _mp_add751_asm:
 #else
@@ -1952,7 +1943,7 @@ mp_add751_asm:
 //  2x751-bit multiprecision addition
 //  Operation: c [reg_p3] = a [reg_p1] + b [reg_p2]
 //*********************************************************************** 
-#if defined(__APPLE__)
+#if defined(__ASM_UNDER__)
 .global _mp_add751x2_asm
 _mp_add751x2_asm:
 #else

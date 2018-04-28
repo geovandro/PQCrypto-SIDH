@@ -14,10 +14,63 @@
 #include "SIDH_internal.h"
 #include <stdlib.h>
 
-// Discrete log bases precomputed for the 2- and 3-torsion
+// Discrete log. bases precomputed for the 2- and 3-torsion
 
 extern f2elm_t **ph2_T;
+#if (W_3 == 1)
 extern f2elm_t **ph3_T;
+#else
+extern f2elm_t **ph3_T1;
+extern f2elm_t **ph3_T2;
+#endif
+
+
+PCurveIsogenyStruct SIDH_curve_allocate(PCurveIsogenyStaticData CurveData)
+{ // Dynamic allocation of memory for curve isogeny structure.
+  // Returns NULL on error.
+    digit_t pbytes = (CurveData->pwordbits + 7)/8;
+    digit_t obytes = (CurveData->owordbits + 7)/8;
+    PCurveIsogenyStruct pCurveIsogeny = NULL;
+
+    pCurveIsogeny = (PCurveIsogenyStruct)calloc(1, sizeof(CurveIsogenyStruct));
+    pCurveIsogeny->prime = (digit_t*)calloc(1, pbytes);
+    pCurveIsogeny->A = (digit_t*)calloc(1, pbytes);
+    pCurveIsogeny->C = (digit_t*)calloc(1, pbytes);
+    pCurveIsogeny->Aorder = (digit_t*)calloc(1, obytes);
+    pCurveIsogeny->Border = (digit_t*)calloc(1, obytes);
+    pCurveIsogeny->PA = (digit_t*)calloc(1, 4*pbytes);
+    pCurveIsogeny->PB = (digit_t*)calloc(1, 2*pbytes);
+    pCurveIsogeny->BigMont_order = (digit_t*)calloc(1, pbytes);
+    pCurveIsogeny->Montgomery_R2 = (digit_t*)calloc(1, pbytes);
+    pCurveIsogeny->Montgomery_pp = (digit_t*)calloc(1, pbytes);
+    pCurveIsogeny->Montgomery_one = (digit_t*)calloc(1, pbytes);
+    pCurveIsogeny->epq_A = (digit_t*)calloc(1, 2*pbytes);
+    pCurveIsogeny->epq_B = (digit_t*)calloc(1, 2*pbytes);
+    
+    ph2_T = (f2elm_t**)calloc(DLEN_2, sizeof(f2elm_t*));
+    for (int i = 0; i < DLEN_2; i++) {
+        ph2_T[i] = (f2elm_t*)calloc(ELL2_W, sizeof(f2elm_t));
+    }    
+
+#if (W_3 == 1)    
+    ph3_T = (f2elm_t**)calloc(DLEN_3, sizeof(f2elm_t*));
+    for (int i = 0; i < DLEN_3; i++) {
+        ph3_T[i] = (f2elm_t*)calloc(ELL3_W, sizeof(f2elm_t));
+    }    
+#else    
+    ph3_T1 = (f2elm_t**)calloc(DLEN_3, sizeof(f2elm_t*));
+    ph3_T2 = (f2elm_t**)calloc(DLEN_3, sizeof(f2elm_t*));
+    for (int i = 0; i < DLEN_3; i++) {
+        ph3_T1[i] = (f2elm_t*)calloc(ELL3_W, sizeof(f2elm_t));
+        ph3_T2[i] = (f2elm_t*)calloc(ELL3_W, sizeof(f2elm_t));
+    }
+#endif    
+
+    if (is_CurveIsogenyStruct_null(pCurveIsogeny)) {
+        return NULL;
+    }
+    return pCurveIsogeny;
+}
 
 
 CRYPTO_STATUS SIDH_curve_initialize(PCurveIsogenyStruct pCurveIsogeny, RandomBytes RandomBytesFunction, PCurveIsogenyStaticData pCurveIsogenyData)
@@ -63,48 +116,14 @@ CRYPTO_STATUS SIDH_curve_initialize(PCurveIsogenyStruct pCurveIsogeny, RandomByt
     fp2_conj(invg_A, invg_A);
     fp2_conj(invg_B, invg_B);
     Precomp(invg_A, ph2_T, ELL2_W, W_2, DLEN_2, pCurveIsogeny);
-    Precomp(invg_B, ph3_T, 3, W_3, pCurveIsogeny->eB, pCurveIsogeny);
+#if (W_3 == 1)    
+    Precomp(invg_B, ph3_T, 3, 1, DLEN_3, pCurveIsogeny);
+#else    
+    PrecompT1(invg_B, ph3_T1, 3, W_3, pCurveIsogeny->eB, pCurveIsogeny);
+    PrecompT2(invg_B, ph3_T2, 3, W_3, pCurveIsogeny->eB, pCurveIsogeny);
+#endif    
     
     return CRYPTO_SUCCESS;
-}
-
-
-PCurveIsogenyStruct SIDH_curve_allocate(PCurveIsogenyStaticData CurveData)
-{ // Dynamic allocation of memory for curve isogeny structure.
-  // Returns NULL on error.
-    digit_t pbytes = (CurveData->pwordbits + 7)/8;
-    digit_t obytes = (CurveData->owordbits + 7)/8;
-    PCurveIsogenyStruct pCurveIsogeny = NULL;
-
-    pCurveIsogeny = (PCurveIsogenyStruct)calloc(1, sizeof(CurveIsogenyStruct));
-    pCurveIsogeny->prime = (digit_t*)calloc(1, pbytes);
-    pCurveIsogeny->A = (digit_t*)calloc(1, pbytes);
-    pCurveIsogeny->C = (digit_t*)calloc(1, pbytes);
-    pCurveIsogeny->Aorder = (digit_t*)calloc(1, obytes);
-    pCurveIsogeny->Border = (digit_t*)calloc(1, obytes);
-    pCurveIsogeny->PA = (digit_t*)calloc(1, 4*pbytes);
-    pCurveIsogeny->PB = (digit_t*)calloc(1, 2*pbytes);
-    pCurveIsogeny->BigMont_order = (digit_t*)calloc(1, pbytes);
-    pCurveIsogeny->Montgomery_R2 = (digit_t*)calloc(1, pbytes);
-    pCurveIsogeny->Montgomery_pp = (digit_t*)calloc(1, pbytes);
-    pCurveIsogeny->Montgomery_one = (digit_t*)calloc(1, pbytes);
-    pCurveIsogeny->epq_A = (digit_t*)calloc(1, 2*pbytes);
-    pCurveIsogeny->epq_B = (digit_t*)calloc(1, 2*pbytes);
-    
-    ph2_T = (f2elm_t**)calloc(DLEN_2, sizeof(f2elm_t*));
-    for (int i = 0; i < DLEN_2; i++) {
-        ph2_T[i] = (f2elm_t*)calloc(ELL2_W, sizeof(f2elm_t));
-    }    
-    
-    ph3_T = (f2elm_t**)calloc(DLEN_3, sizeof(f2elm_t*));
-    for (int i = 0; i < 239; i++) {
-        ph3_T[i] = (f2elm_t*)calloc(3, sizeof(f2elm_t));
-    }
-
-    if (is_CurveIsogenyStruct_null(pCurveIsogeny)) {
-        return NULL;
-    }
-    return pCurveIsogeny;
 }
 
 
@@ -141,8 +160,15 @@ void SIDH_curve_free(PCurveIsogenyStruct pCurveIsogeny)
             free(pCurveIsogeny->epq_B);
         if (ph2_T != NULL)
             free(ph2_T);
+#if (W_3 == 1)        
         if (ph3_T != NULL)
             free(ph3_T);
+#else        
+        if (ph3_T1 != NULL)
+            free(ph3_T1);
+        if (ph3_T2 != NULL)
+            free(ph3_T2);       
+#endif        
         
         free(pCurveIsogeny);
     }

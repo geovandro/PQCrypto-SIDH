@@ -14,7 +14,7 @@
 #include "tests/test_extras.h"
 #include <string.h>
 #include <stdio.h>
-    
+
 
 // Global constants          
 const uint64_t p751[NWORDS_FIELD]          = { 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xEEAFFFFFFFFFFFFF,
@@ -37,7 +37,7 @@ void print_fp(const felm_t a, int isMonty)
     else
         fpcopy751(a,b);
     for (i = NWORDS_FIELD-1; i >= 0 ; i--) {
-#if defined(__APPLE__)        
+#if defined(__PRINTv2__)        
         printf("%016llx", b[i]);
 #else        
         printf("%016lx", b[i]);
@@ -46,10 +46,11 @@ void print_fp(const felm_t a, int isMonty)
     printf("\n");
 }
 
+
 void print_dl(const digit_t *a)
 {
     for (int i = NWORDS_ORDER-1; i >= 0 ; i--) {
-#if defined(__APPLE__)        
+#if defined(__PRINTv2__)        
         printf("%016llx", a[i]);
 #else
         printf("%016lx", a[i]);
@@ -111,33 +112,35 @@ void from_mont(const felm_t ma, felm_t c)
     fpcorrection751(c);
 }
 
+
 void from_base(int *D, digit_t *r, int Dlen, int base) 
 {
     digit_t ell[6] = {0}, digit[6] = {0}, temp[6] = {0};
+    int ellw;
     
     ell[0] = base;
     r[0] = D[Dlen-1]*ell[0]; 
     for (int i = Dlen-2; i >= 1; i--) {
+        ellw = base;
         digit[0] = D[i];
         mp_add(r, digit, r, 6);
-        if (base == 2) {
-            mp_add(r, r, r, 6);
-        } else if (base == 4) {
-            mp_add(r, r, r, 6);
-            mp_add(r, r, r, 6);
-        } else if (base == 16) {
-            mp_add(r, r, r, 6);
-            mp_add(r, r, r, 6);            
-            mp_add(r, r, r, 6);   
-            mp_add(r, r, r, 6);               
+        if ((base & 0x1) == 0x0) {
+            while (ellw > 1) {
+                mp_add(r, r, r, 6);   
+                ellw /= 2;
+            }
         } else {
-            mp_add(r, r, temp, 6);
-            mp_add(r, temp, r, 6);
+            while (ellw > 1) {
+                mp_add(r, r, temp, 6);
+                mp_add(r, temp, r, 6);
+                ellw /= 3;
+            }
         }
     }
     digit[0] = (digit_t)D[0];
     mp_add(r, digit, r, 6);
 }
+
 
 static __inline unsigned int is_felm_zero(const felm_t x)
 { // Is x = 0? return 1 (TRUE) if condition is true, 0 (FALSE) otherwise.
@@ -431,77 +434,77 @@ void fpinv751_mont(felm_t a)
 
 static __inline void power2_setup(digit_t* x, int mark, const unsigned int nwords)
 {  // Set up the value 2^mark.
-	unsigned int i;
+    unsigned int i;
 
-	for (i = 0; i < nwords; i++) x[i] = 0;
+    for (i = 0; i < nwords; i++) x[i] = 0;
 
     i = 0;
-	while (mark >= 0) {
-		if (mark < RADIX) {
-			x[i] = (digit_t)1 << mark;
-		}
-		mark -= RADIX;
-		i += 1;
-	}
+    while (mark >= 0) {
+        if (mark < RADIX) {
+            x[i] = (digit_t)1 << mark;
+        }
+        mark -= RADIX;
+        i += 1;
+    }
 }
 
 
 static __inline void fpinv751_mont_bingcd_partial(const felm_t a, felm_t x1, unsigned int* k)
 { // Partial Montgomery inversion in GF(p751) via the binary GCD algorithm.
-	felm_t u, v, x2;
-	unsigned int cwords;  // number of words necessary for x1, x2
+    felm_t u, v, x2;
+    unsigned int cwords;  // number of words necessary for x1, x2
 
-	fpcopy751(a, u);
-	fpcopy751((digit_t*)&p751, v);
-	fpzero751(x1); x1[0] = 1;
-	fpzero751(x2);
-	*k = 0;
+    fpcopy751(a, u);
+    fpcopy751((digit_t*)&p751, v);
+    fpzero751(x1); x1[0] = 1;
+    fpzero751(x2);
+    *k = 0;
 
-	while (!is_felm_zero(v)) {
-		cwords = ((*k + 1) / RADIX) + 1;
-		if ((cwords < NWORDS_FIELD)) {
-			if (is_felm_even(v)) {
-				mp_shiftr1(v, NWORDS_FIELD);
-				mp_shiftl1(x1, cwords);
-			} else if (is_felm_even(u)) {
-				mp_shiftr1(u, NWORDS_FIELD);
-				mp_shiftl1(x2, cwords);
-			} else if (!is_felm_lt(v, u)) {
-				mp_sub(v, u, v, NWORDS_FIELD);
-				mp_shiftr1(v, NWORDS_FIELD);
-				mp_add(x1, x2, x2, cwords);
-				mp_shiftl1(x1, cwords);
-			} else {
-				mp_sub(u, v, u, NWORDS_FIELD);
-				mp_shiftr1(u, NWORDS_FIELD);
-				mp_add(x1, x2, x1, cwords);
-				mp_shiftl1(x2, cwords);
-			}
-		} else {
-			if (is_felm_even(v)) {
-				mp_shiftr1(v, NWORDS_FIELD);
-				mp_shiftl1(x1, NWORDS_FIELD);
-			} else if (is_felm_even(u)) {
-				mp_shiftr1(u, NWORDS_FIELD);
-				mp_shiftl1(x2, NWORDS_FIELD);
-			} else if (!is_felm_lt(v, u)) {
-				mp_sub(v, u, v, NWORDS_FIELD);
-				mp_shiftr1(v, NWORDS_FIELD);
-				mp_add751(x1, x2, x2);
-				mp_shiftl1(x1, NWORDS_FIELD);
-			} else {
-				mp_sub(u, v, u, NWORDS_FIELD);
-				mp_shiftr1(u, NWORDS_FIELD);
-				mp_add751(x1, x2, x1);
-				mp_shiftl1(x2, NWORDS_FIELD);
-			}
-		}
-		*k += 1;
-	}
+    while (!is_felm_zero(v)) {
+        cwords = ((*k + 1) / RADIX) + 1;
+        if ((cwords < NWORDS_FIELD)) {
+            if (is_felm_even(v)) {
+                mp_shiftr1(v, NWORDS_FIELD);
+                mp_shiftl1(x1, cwords);
+            } else if (is_felm_even(u)) {
+                mp_shiftr1(u, NWORDS_FIELD);
+                mp_shiftl1(x2, cwords);
+            } else if (!is_felm_lt(v, u)) {
+                mp_sub(v, u, v, NWORDS_FIELD);
+                mp_shiftr1(v, NWORDS_FIELD);
+                mp_add(x1, x2, x2, cwords);
+                mp_shiftl1(x1, cwords);
+            } else {
+                mp_sub(u, v, u, NWORDS_FIELD);
+                mp_shiftr1(u, NWORDS_FIELD);
+                mp_add(x1, x2, x1, cwords);
+                mp_shiftl1(x2, cwords);
+            }
+        } else {
+            if (is_felm_even(v)) {
+                mp_shiftr1(v, NWORDS_FIELD);
+                mp_shiftl1(x1, NWORDS_FIELD);
+            } else if (is_felm_even(u)) {
+                mp_shiftr1(u, NWORDS_FIELD);
+                mp_shiftl1(x2, NWORDS_FIELD);
+            } else if (!is_felm_lt(v, u)) {
+                mp_sub(v, u, v, NWORDS_FIELD);
+                mp_shiftr1(v, NWORDS_FIELD);
+                mp_add751(x1, x2, x2);
+                mp_shiftl1(x1, NWORDS_FIELD);
+            } else {
+                mp_sub(u, v, u, NWORDS_FIELD);
+                mp_shiftr1(u, NWORDS_FIELD);
+                mp_add751(x1, x2, x1);
+                mp_shiftl1(x2, NWORDS_FIELD);
+            }
+        }
+        *k += 1;
+    }
 
-	if (is_felm_lt((digit_t*)&p751, x1)) {
-		mp_sub(x1, (digit_t*)&p751, x1, NWORDS_FIELD);
-	}
+    if (is_felm_lt((digit_t*)&p751, x1)) {
+        mp_sub(x1, (digit_t*)&p751, x1, NWORDS_FIELD);
+    }
 }
 
 
@@ -509,17 +512,17 @@ void fpinv751_mont_bingcd(felm_t a)
 { // Field inversion via the binary GCD using Montgomery arithmetic, a = a^-1*R mod p751.
   // SECURITY NOTE: This function does not run in constant-time and is therefore only suitable for 
   //                operations not involving any secret data.
-	felm_t x, t;
-	unsigned int k;
+    felm_t x, t;
+    unsigned int k;
 
-	fpinv751_mont_bingcd_partial(a, x, &k);
-	if (k < 768) {
-		fpmul751_mont(x, (digit_t*)&Montgomery_R2, x);
-		k += 768;
-	}
-	fpmul751_mont(x, (digit_t*)&Montgomery_R2, x);
-	power2_setup(t, 2*768 - k, NWORDS_FIELD);
-	fpmul751_mont(x, t, a);
+    fpinv751_mont_bingcd_partial(a, x, &k);
+    if (k < 768) {
+            fpmul751_mont(x, (digit_t*)&Montgomery_R2, x);
+            k += 768;
+    }
+    fpmul751_mont(x, (digit_t*)&Montgomery_R2, x);
+    power2_setup(t, 2*768 - k, NWORDS_FIELD);
+    fpmul751_mont(x, t, a);
 }
 
 
@@ -860,8 +863,8 @@ void mont_n_way_inv(const f2elm_t* vec, const int n, f2elm_t* out)
 { // n-way simultaneous inversion using Montgomery's trick.
   // SECURITY NOTE: This function does not run in constant time.
   // Also, vec and out CANNOT be the same variable!
-	f2elm_t t1;
-	int i;
+    f2elm_t t1;
+    int i;
 
     fp2copy751(vec[0], out[0]);                      // out[0] = vec[0]
     for (i = 1; i < n; i++) {
@@ -872,7 +875,7 @@ void mont_n_way_inv(const f2elm_t* vec, const int n, f2elm_t* out)
     fp2inv751_mont_bingcd(t1);
     
     for (i = n-1; i >= 1; i--) {
-		fp2mul751_mont(out[i-1], t1, out[i]);// out[i] = t1*out[i-1]
+        fp2mul751_mont(out[i-1], t1, out[i]);// out[i] = t1*out[i-1]
         fp2mul751_mont(t1, vec[i], t1);              // t1 = t1*vec[i]
     }
     fp2copy751(t1, out[0]);                          // out[0] = t1
@@ -1272,17 +1275,17 @@ void Montgomery_inversion_mod_order(const digit_t* ma, digit_t* mc, const digit_
     memmove((unsigned char*)&table[0], (unsigned char*)ma, nbytes);                               // table[0] = ma 
     Montgomery_multiply_mod_order(ma, ma, input_a, order, Montgomery_rprime);                     // ma^2
     for (j = 0; j < npoints - 1; j++) {
-            Montgomery_multiply_mod_order(table[j], input_a, table[j+1], order, Montgomery_rprime);   // table[j+1] = table[j] * ma^2
+        Montgomery_multiply_mod_order(table[j], input_a, table[j+1], order, Montgomery_rprime);   // table[j+1] = table[j] * ma^2
     }
 
     while (bit != 1) {                                     // Shift (modulus-2) to the left until getting first bit 1
-            i--;
-            temp = 0;
-            for (j = 0; j < nwords; j++) {
-                    bit = (modulus2[j] & mask) >> (sizeof(digit_t)*8 - 1);
-                    modulus2[j] = (modulus2[j] << 1) | temp;
-                    temp = bit;
-            }
+        i--;
+        temp = 0;
+        for (j = 0; j < nwords; j++) {
+            bit = (modulus2[j] & mask) >> (sizeof(digit_t)*8 - 1);
+            modulus2[j] = (modulus2[j] << 1) | temp;
+            temp = bit;
+        }
     }
 
     // Evaluation stage
@@ -1438,10 +1441,10 @@ void to_Montgomery_mod_order(const digit_t* a, digit_t* mc, const digit_t* order
 
 void from_Montgomery_mod_order(const digit_t* ma, digit_t* c, const digit_t* order, const digit_t* Montgomery_rprime)
 { // Conversion of elements in Z_r from Montgomery to standard representation, where the order is up to 384 bits.
-	digit_t one[NWORDS_ORDER] = {0};
-	one[0] = 1;
+    digit_t one[NWORDS_ORDER] = {0};
+    one[0] = 1;
 
-	Montgomery_multiply_mod_order(ma, one, c, order, Montgomery_rprime);
+    Montgomery_multiply_mod_order(ma, one, c, order, Montgomery_rprime);
 }
 
 

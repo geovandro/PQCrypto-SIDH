@@ -23,6 +23,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <math.h>    
 
  
 // Definition of operating system
@@ -160,26 +161,52 @@ extern "C" {
 //#define W_2 1    
 #define W_2 2
 //#define W_2 4
-    
-#define W_3 1
-  
-// # of digits in the discrete log    
-//#define DLEN_2 372 // w = 1
-#define DLEN_2 186 // w = 2
-//#define DLEN_2 93 // w = 4
-    
-#define DLEN_3 239
 
-// Length of the optimal strategy path    
-//#define PLEN_2 373 // w = 1
-#define PLEN_2 187 // w = 2
-//#define PLEN_2 94 // w = 4    
+//#define W_3 1
+//#define W_3 3
+#define W_3 6
     
+    
+// # of digits in the discrete log    
+#if (W_2 == 1)    
+#define DLEN_2 372 // w = 1
+#elif (W_2 == 2)    
+#define DLEN_2 186 // w = 2
+#elif (W_2 == 4)
+#define DLEN_2 93 // w = 4
+#endif    
+
+#if (W_3 == 1)    
+#define DLEN_3 239
+#elif (W_3 == 3)    
+#define DLEN_3 80
+#elif (W_3 == 6)    
+#define DLEN_3 40    
+#endif     
+
+    
+// Length of the optimal strategy path
+#if (W_2 == 1)
+#define PLEN_2 373 // w = 1
+#elif (W_2 == 2)    
+#define PLEN_2 187 // w = 2
+#elif (W_2 == 4)    
+#define PLEN_2  94 // w = 4    
+#endif    
+
+#if (W_3 == 1)    
 #define PLEN_3 240
+#elif (W_3 == 3)    
+#define PLEN_3 81
+#elif (W_3 == 6)    
+#define PLEN_3 41    
+#endif    
 
 // ell^w    
-#define ELL2_W (1 << W_2)
-    
+#define ELL2_W (1 << W_2)    
+#define ELL3_W (int)powf(3, W_3)
+
+
 // Definitions of the error-handling type and error codes
 
 typedef enum {

@@ -27,8 +27,10 @@
 //
 
 CurveIsogenyStaticData CurveIsogeny_SIDHp751 = {
-    "SIDHp751", 768, 384,         // Curve isogeny system ID, smallest multiple of 32 larger than the prime bitlength and smallest multiple of 32 larger than the order bitlength
-    751,                          // Bitlength of the prime 
+    // Curve isogeny system ID, smallest multiple of 32 larger than the prime bitlength and smallest multiple of 32 larger than the order bitlength
+    "SIDHp751", 768, 384,         
+    // Bitlength of the prime 
+    751,                          
     // Prime p751 = 2^372*3^239-1
     { 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xEEAFFFFFFFFFFFFF, 
       0xE3EC968549F878A8, 0xDA959B1A13F7CC76, 0x084E9867D6EBE876, 0x8562B5045CB25748, 0x0E12909F97BADC66, 0x00006FE5D541F71C },                                                
@@ -87,7 +89,7 @@ CurveIsogenyStaticData CurveIsogeny_SIDHp751 = {
 };
 
 
-// Fixed parameters for isogeny tree computation
+// Fixed parameters for isogeny tree computation (optimal strategy)
 
 const unsigned int splits_Alice[MAX_Alice] = {
  0, 1, 1, 2, 2, 2, 3, 4, 4, 4, 4, 5, 5, 6, 7, 8, 8, 9, 9, 9, 9, 9, 9, 9, 12, 

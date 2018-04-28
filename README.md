@@ -3,10 +3,11 @@
 Faster SIDH key compression introduces new algorithms for speeding up the main SIDH (de)compression bottlenecks including the following contributions:
 * faster basis generation for the 2^eA (~15.0x due to entangled bases) and 3^eB torsions, 
 * faster Tate pairing computation, 
-* faster algorithm for smooth-order discrete logarithms inspired by the De Feo-Jao-Plut's optimal strategy,
+* faster Pohlig-Hellman for smooth-order discrete logarithms inspired by the De Feo-Jao-Plut's optimal strategy,
+* new windowed Pohlig-Hellman for cases where the window size w does not divide the exponent e
 * faster point tripling formula for the non-projective curve coefficient case,
 * reverse basis decomposition technique to avoid one pairing computation in each compression.
-* shared elligator 2 for faster decompression (up to 2x faster)
+* new shared elligator for faster decompression in 3^eB (up to 2x faster)
 
 
 The related pre-print is available [`here`](http://eprint.iacr.org/2017/1143).
@@ -21,25 +22,25 @@ flag.
  * Optimized for Haswell processors (append ARCH_EX=haswell):
 
 ```sh
-$ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ASM=TRUE ARCH_EX=haswell
+$ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ARCH_EX=haswell
 ```
 
  * Optimized for Skylake processors (append ARCH_EX=skylake):
 
 ```sh
-$ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ASM=TRUE ARCH_EX=skylake
+$ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ARCH_EX=skylake
 ```
 
  * Compile using the original prime field arithmetic.
 
 ```sh
-$ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ASM=TRUE ARCH_EX=native
+$ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ARCH_EX=native
 ```
 
  * Compile for Apple OSX.
 
 ```sh
-$ make ARCH=x64 CC=[gcc/clang] GENERIC=[FALSE/TRUE] SET=EXTENDED [ASM=TRUE] [ARCH_EX=native] __APPLE__=TRUE
+$ make ARCH=x64 CC=[gcc/clang] GENERIC=[FALSE/TRUE] SET=EXTENDED ARCH_EX=native
 ```
 
 ### License 

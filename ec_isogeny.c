@@ -15,7 +15,9 @@
 #include <math.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 
+// Tables used by the Entangled basis generation
 #define TABLE_R_LEN 17
 #define TABLE_V_LEN 34
 
@@ -27,14 +29,23 @@ extern const uint64_t table_r_qnr[TABLE_R_LEN][NWORDS_FIELD];
 extern const uint64_t table_v_qr[TABLE_V_LEN][NWORDS_FIELD];
 extern const uint64_t table_v_qnr[TABLE_V_LEN][NWORDS_FIELD];
 extern const uint64_t v_3_torsion[20][2*NWORDS_FIELD];
+// Optimal paths and tables for discrete log computation
 extern const int ph2_path[PLEN_2];
 extern const int ph3_path[PLEN_3];
 extern const f2elm_t **ph2_T;
+#if (W_3 == 1)
 extern const f2elm_t **ph3_T;
+#else
+extern const f2elm_t **ph3_T1;
+extern const f2elm_t **ph3_T2;
+#endif
 
 const uint64_t threeinv[NWORDS64_FIELD] = {0x555555555556188F, 0x5555555555555555, 0x5555555555555555, 0x5555555555555555, 
                                            0x5555555555555555, 0x8105555555555555, 0x1C6290A167C97977, 0xCDD287EA6A6FB6F0, 
                                            0x42DF3D3B8EC96F64, 0x198C3C1346027872, 0xB0528624270642A3, 0xF1E61944CA0,};
+
+static uint64_t sqrt17[NWORDS64_FIELD] = { 0x89127CDB8966913D, 0xF788014C8C8401A0, 0x1A16F73884F3E3E8, 0x2E67382B560FA195, 0xDD5EE869B7F4FD81, 0x16A0849EF695EFEB,
+	                                   0x3675244609DE1963, 0x36F02976EF2EB241, 0x92D09F939A20637F, 0x41496905F2B0112C, 0xA94C09B1F7242495, 0x0000297652D36A97 };
 
 
 static unsigned int is_fp_zero(const felm_t x)
@@ -76,6 +87,7 @@ void j_inv(const f2elm_t A, const f2elm_t C, f2elm_t jinv)
 void Monty2Weier(const f2elm_t A, f2elm_t a, f2elm_t b, PCurveIsogenyStruct CurveIsogeny)
 { // Convert a Montgomery curve EM: y^2 = x^3 + A*x^2 + x into its short Weierstrass form EW: v^2 = u^3 + a*u + b.
     f2elm_t one = {0}, temp, A2, AA;
+    
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     //a = 1 - A^2/3
     fp2sqr751_mont(A, A2);
@@ -184,14 +196,13 @@ void xDBLe(const point_proj_t P, point_proj_t Q, const f2elm_t A, const f2elm_t 
 
 
 void Double(point_proj_t P, point_proj_t Q, f2elm_t A24, const int k)
-{
-    int j;
+{ // Projective double for non-projective curve coefficient 
     f2elm_t temp, a, b, c, aa, bb;    
     
     fp2copy751(P->X,Q->X);
     fp2copy751(P->Z,Q->Z);
     
-    for (j = 0; j < k; j++) {
+    for (int j = 0; j < k; j++) {
         fp2add751(Q->X,Q->Z,a);
         fp2sub751(Q->X,Q->Z,b);
         fp2sqr751_mont(a,aa);
@@ -416,6 +427,7 @@ CRYPTO_STATUS secret_pt_fp(const point_basefield_t P, const digit_t* m, const un
     return CRYPTO_SUCCESS;
 }
 
+
 CRYPTO_STATUS secret_pt(const point_t PA, const digit_t* m, point_proj_t R, PCurveIsogenyStruct CurveIsogeny)
 { // Computes Alice's key generation in E(Fp2) using a 1-dimensional Montgomery ladder and recovering the y-coordinate for the addition.
   // Assume A is in the base field for the initial curve
@@ -478,6 +490,7 @@ CRYPTO_STATUS secret_pt(const point_t PA, const digit_t* m, point_proj_t R, PCur
 
     return CRYPTO_SUCCESS;
 }
+
 
 CRYPTO_STATUS ladder_3_pt(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xPQ, const digit_t* m, const unsigned int AliceOrBob, point_proj_t W, const f2elm_t A, PCurveIsogenyStruct CurveIsogeny)
 { // Computes P+[m]Q via x-only arithmetic. Algorithm by De Feo, Jao and Plut.
@@ -619,17 +632,17 @@ void xTPLe(const point_proj_t P, point_proj_t Q, const f2elm_t A, const f2elm_t 
   // Input: projective Montgomery x-coordinates P = (XP:ZP), such that xP=XP/ZP and Montgomery curve constant A/C.
   // Output: projective Montgomery x-coordinates Q <- (3^e)*P.
     f2elm_t A24, C24;
-    int i;
     
     fp2add751(C, C, A24);                           
     fp2add751(A24, A24, C24);                    
     fp2add751(A24, A, A24);       
     copy_words((digit_t*)P, (digit_t*)Q, 2*2*NWORDS_FIELD);
 
-    for (i = 0; i < e; i++) {
+    for (int i = 0; i < e; i++) {
         xTPL(Q, Q, A24, C24);
     }
 }
+
 
 /**
  * Montgomery curve (E: y^2 = x^3 + A*x^2 + x) x-only tripling at a cost 5M + 6S + 9A = 27p + 61a.
@@ -753,6 +766,7 @@ void distort_and_diff_fp(const felm_t xP, point_proj_t D, PCurveIsogenyStruct Cu
     fpadd751(xP, xP, D->Z[0]);                       // ZD = xP+xP
 }
 
+
 void distort_and_diff(const f2elm_t xP, point_proj_t D, PCurveIsogenyStruct CurveIsogeny)
 { // Computing the point (x(Q-P),z(Q-P))
   // Input:  coordinate xP of point P=(xP,yP)
@@ -768,6 +782,7 @@ void distort_and_diff(const f2elm_t xP, point_proj_t D, PCurveIsogenyStruct Curv
     fpneg751(D->X[0]);
     fp2add751(xP, xP, D->Z);                         // ZD = xP+xP
 }
+
 
 void get_A(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xR, f2elm_t A, PCurveIsogenyStruct CurveIsogeny)
 { // Given the x-coordinates of P, Q, and R, returns the value A corresponding to the Montgomery curve E_A: y^2=x^3+A*x^2+x such that R=Q-P on E_A.
@@ -935,13 +950,13 @@ void generate_2_torsion_basis(const f2elm_t A, point_full_proj_t R1, point_full_
     fp2mul751_mont(Z2, t1, Y2);                      // Y2 = t1*Z2
 }
 
-void generate_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2, PCurveIsogenyStruct CurveIsogeny) 
+
+void get_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2, PCurveIsogenyStruct CurveIsogeny) 
 {
     unsigned int i, index, isSqrA = 0;
     felm_t r = {0}, s, z, alpha, twoalphainv, beta;
-    f2elm_t t, u, v, u0, one = {0};
+    f2elm_t t, u, u0, one = {0}, *t_ptr;
     felm_t *x1 = (felm_t*) S1->x, *y1 = (felm_t*) S1->y, *x2 = (felm_t*) S2->x, *y2 = (felm_t*) S2->y;
-    const digit_t (*T)[NWORDS_FIELD];
      
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     
@@ -950,17 +965,16 @@ void generate_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2,
 
     // select the correct table
     if (is_sqr_fp2(A, s)) {
-        T = table_v_qnr;
+        t_ptr = (f2elm_t *)table_v_qnr; 
         isSqrA = 1;
     } else {
-        T = table_v_qr;
+        t_ptr = (f2elm_t *)table_v_qr;
     }
 
     index = 0;
     do {
-        copy_words(T[index], v[0], 2 * NWORDS_FIELD);
-        fp2mul751_mont(A, v, x1);
-        fp2neg751(x1); // x1 = -A*v
+        fp2mul751_mont(A, (felm_t *)*t_ptr++, x1); // x1 =  A*v
+        fp2neg751(x1);                             // x1 = -A*v
         fp2add751(x1, A, t);
         fp2mul751_mont(x1, t, t);
         fpadd751(t[0], one[0], t[0]);
@@ -1007,8 +1021,6 @@ void generate_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2,
     fpmul751_mont(r,y2[1],y2[1]);   // y2 = u0*r*y1
 }
 
-static uint64_t sqrt17[NWORDS64_FIELD] = { 0x89127CDB8966913D, 0xF788014C8C8401A0, 0x1A16F73884F3E3E8, 0x2E67382B560FA195, 0xDD5EE869B7F4FD81, 0x16A0849EF695EFEB,
-	                                   0x3675244609DE1963, 0x36F02976EF2EB241, 0x92D09F939A20637F, 0x41496905F2B0112C, 0xA94C09B1F7242495, 0x0000297652D36A97 };
 
 static void get_X_on_curve(f2elm_t A, unsigned int* r, f2elm_t x, felm_t t1, felm_t a, felm_t b) 
 { // Elligator2 for X
@@ -1292,33 +1304,30 @@ void CompleteMPoint(f2elm_t A, point_proj_t P, point_full_proj_t R, PCurveIsogen
 void BasePoint3n(f2elm_t A, unsigned int *r, point_proj_t P, point_proj_t Q, PCurveIsogenyStruct CurveIsogeny)
 {
     int i;
-    felm_t one, a2, b2, N, temp0, temp1;
-    f2elm_t A2, A24, two = {0}, zero = {0}, v, x, y2, temp, one_fp2 = {0};
+    felm_t a2, b2, N, temp0, temp1;
+    f2elm_t A2, A24, two = {0}, x, y2, one_fp2 = {0}, *t_ptr;
     point_proj_t S;
     
-    fpcopy751(CurveIsogeny->Montgomery_one, one);
     fpcopy751(CurveIsogeny->Montgomery_one, one_fp2[0]);
     fp2div2_751(A,A2);
-    fpcopy751(CurveIsogeny->Montgomery_one,two[0]);
+    fpcopy751(one_fp2[0],two[0]);
     fpadd751(two[0], two[0], two[0]);
     fp2add751(A,two,A24);
     fp2div2_751(A24,A24);
     fp2div2_751(A24,A24);
 
+    t_ptr = (f2elm_t *)&v_3_torsion[*r];    
     do {
-        *r += 1;
-        fp2copy751((felm_t*)&v_3_torsion[*r-1], v); //v := 1/(1 + U*r^2); //table lookup
-        fp2copy751(A,two);
-        fp2neg751(two);
-        fp2mul751_mont(two,v,x);  // x = -A*v;
-        fp2mul751_mont(A,x,y2);             
-        fpadd751(y2[0], one, y2[0]);        
-        fp2sqr751_mont(x,temp);
-        fp2add751(temp,y2,y2);
-        fp2mul751_mont(x,y2,y2); // y2 = x*(x^2 + A*x + 1);
+        *r += 1;        
+        fp2mul751_mont(A,(felm_t*)t_ptr++,x); // x = A*v; v := 1/(1 + U*r^2) table lookup
+        fp2neg751(x);                         // x = -A*v;
+        fp2add751(A,x,y2);                    // y2 = x + A
+        fp2mul751_mont(y2, x, y2);            // y2 = x*(x + A)
+        fpadd751(y2[0], one_fp2[0], y2[0]);   // y2 = x(x + A) + 1
+        fp2mul751_mont(x,y2,y2);              // y2 = x*(x^2 + Ax + 1);
         fpsqr751_mont(y2[0],a2);
         fpsqr751_mont(y2[1],b2);
-        fpadd751(a2,b2,N);       // N := Fp!norm(y2);
+        fpadd751(a2,b2,N);                    // N := norm(y2);
 
         fpcopy751(N,temp0);
         for (i = 0; i < 370; i++) {    
@@ -1341,7 +1350,7 @@ void BasePoint3n(f2elm_t A, unsigned int *r, point_proj_t P, point_proj_t Q, PCu
         xTPLe_fast(P,Q,A2,CurveIsogeny->eB-1);  // t, w := Triple(A_2, x, z, eB-1);
         fp2correction751(Q->X);
         fp2correction751(Q->Z);
-    }   while (fp2compare751(Q->Z,zero) == 0);
+    }   while (is_fp_zero(Q->Z[0]) && is_fp_zero(Q->Z[1]));
 }
 
 
@@ -1350,33 +1359,31 @@ void BasePoint3n(f2elm_t A, unsigned int *r, point_proj_t P, point_proj_t Q, PCu
 void BasePoint3n_decompression(f2elm_t A, unsigned int r, point_proj_t P, point_proj_t Q, PCurveIsogenyStruct CurveIsogeny)
 {
     int i;
-    felm_t one, a2, b2, N, temp0, temp1;
-    f2elm_t A2, A24, two = {0}, v, x, y2, temp, one_fp2 = {0};
+    felm_t a2, b2, N, temp0, temp1;
+    f2elm_t A2, A24, two = {0}, x, y2, temp, one_fp2 = {0};
     point_proj_t S;
     
-    fpcopy751(CurveIsogeny->Montgomery_one, one);
     fpcopy751(CurveIsogeny->Montgomery_one, one_fp2[0]);
     fp2div2_751(A,A2);
-    fpcopy751(CurveIsogeny->Montgomery_one,two[0]);
+    fpcopy751(one_fp2[0],two[0]);
     fpadd751(two[0], two[0], two[0]);
     fp2add751(A,two,A24);
     fp2div2_751(A24,A24);
     fp2div2_751(A24,A24);
 
-    fp2copy751((felm_t*)&v_3_torsion[r-1], v); //v := 1/(1 + U*r^2); //table lookup
-    fp2copy751(A,two);
+    fp2copy751(A, two);
     fp2neg751(two);
-    fp2mul751_mont(two,v,x);  // x = -A*v;
-    fp2mul751_mont(A,x,y2);             
-    fpadd751(y2[0], one, y2[0]);        
-    fp2sqr751_mont(x,temp);
-    fp2add751(temp,y2,y2);
-    fp2mul751_mont(x,y2,y2); // y2 = x*(x^2 + A*x + 1);
-    fpsqr751_mont(y2[0],a2);
-    fpsqr751_mont(y2[1],b2);
-    fpadd751(a2,b2,N);       // N := Fp!norm(y2);
+    fp2mul751_mont(two, (felm_t*)&v_3_torsion[r-1], x);  // x = -A*v;
+    fp2mul751_mont(A, x, y2);             
+    fpadd751(y2[0], one_fp2[0], y2[0]);        
+    fp2sqr751_mont(x, temp);
+    fp2add751(temp,y2 ,y2);
+    fp2mul751_mont(x, y2, y2); // y2 = x*(x^2 + A*x + 1);
+    fpsqr751_mont(y2[0], a2);
+    fpsqr751_mont(y2[1], b2);
+    fpadd751(a2, b2, N);       // N := Fp!norm(y2);
 
-    fpcopy751(N,temp0);
+    fpcopy751(N, temp0);
     for (i = 0; i < 370; i++) {    
         fpsqr751_mont(temp0, temp0);
     }
@@ -1384,32 +1391,30 @@ void BasePoint3n_decompression(f2elm_t A, unsigned int r, point_proj_t P, point_
         fpsqr751_mont(temp0, temp1);
         fpmul751_mont(temp0, temp1, temp0);
     }
-    fpsqr751_mont(temp0,temp1);  // z = N^((p + 1) div 4);
+    fpsqr751_mont(temp0, temp1);  // z = N^((p + 1) div 4);
     fpcorrection751(temp1);
     fpcorrection751(N);
-    if (fpcompare751(temp1,N) != 0) {
+    if (fpcompare751(temp1, N) != 0) {
         fp2neg751(x);
-        fp2sub751(x,A,x);        // x = -x - A;
+        fp2sub751(x, A, x);        // x = -x - A;
     }
-    fp2copy751(x,S->X);
-    fp2copy751(one_fp2,S->Z);
-    Double(S,P,A24,CurveIsogeny->oAbits);   // x, z := Double(A24, x, 1, eA);
+    fp2copy751(x, S->X);
+    fp2copy751(one_fp2, S->Z);
+    Double(S, P, A24, CurveIsogeny->oAbits);   // x, z := Double(A24, x, 1, eA);
 #if !defined(NO_LI_CHECK)    
-    xTPLe_fast(P,Q,A2,CurveIsogeny->eB-1);  // t, w := Triple(A_2, x, z, eB-1);
+    xTPLe_fast(P, Q, A2, CurveIsogeny->eB-1);  // t, w := Triple(A_2, x, z, eB-1);
 #endif    
 }
 
 
-// Deterministic xz-only construction of a point of order 3^n in the Montgomery curve y^2 = x^3 + A*x^2 + x from counter r1.
-// Notice that the Elligator 2 counter r was generated beforehand during key compression without linear independence testing
 void BasePoint3n_decompression_noLItest(f2elm_t A, unsigned int r, point_proj_t P, PCurveIsogenyStruct CurveIsogeny)
-{
+{   // Deterministic xz-only construction of a point of order 3^n in the Montgomery curve y^2 = x^3 + A*x^2 + x from counter r1.
+    // Notice that the Elligator 2 counter r was generated beforehand during key compression without linear independence testing
     int i;
-    felm_t one, a2, b2, N, temp0, temp1;
+    felm_t a2, b2, N, temp0, temp1;
     f2elm_t A2, A24, two = {0}, v, x, y2, temp, one_fp2 = {0};
     point_proj_t S;
     
-    fpcopy751(CurveIsogeny->Montgomery_one, one);
     fpcopy751(CurveIsogeny->Montgomery_one, one_fp2[0]);
     fp2div2_751(A,A2);
     fpcopy751(CurveIsogeny->Montgomery_one,two[0]);
@@ -1418,18 +1423,16 @@ void BasePoint3n_decompression_noLItest(f2elm_t A, unsigned int r, point_proj_t 
     fp2div2_751(A24,A24);
     fp2div2_751(A24,A24);
 
-    fp2copy751((felm_t*)&v_3_torsion[r-1], v); //v := 1/(1 + U*r^2); //table lookup
-    fp2copy751(A,two);
-    fp2neg751(two);
-    fp2mul751_mont(two,v,x);  // x = -A*v;
-    fp2mul751_mont(A,x,y2);             
-    fpadd751(y2[0], one, y2[0]);        
-    fp2sqr751_mont(x,temp);
-    fp2add751(temp,y2,y2);
-    fp2mul751_mont(x,y2,y2); // y2 = x*(x^2 + A*x + 1);
+
+    fp2mul751_mont(A, (felm_t*)&v_3_torsion[r-1], x);  // x =  A*v;
+    fp2neg751(x);                                      // x = -A*v;
+    fp2add751(x,A,y2);                                 // y2 = x + A             
+    fp2mul751_mont(x,y2,y2);                           // y2 = x*(x + A)
+    fpadd751(y2[0], one_fp2[0], y2[0]);                // y2 = x(x + A) + 1
+    fp2mul751_mont(x, y2, y2);                         // y2 = x*(x^2 + A*x + 1);    
     fpsqr751_mont(y2[0],a2);
     fpsqr751_mont(y2[1],b2);
-    fpadd751(a2,b2,N);       // N := Fp!norm(y2);
+    fpadd751(a2,b2,N);                                 // N := Fp!norm(y2);
 
     fpcopy751(N,temp0);
     for (i = 0; i < 370; i++) {    
@@ -1452,49 +1455,29 @@ void BasePoint3n_decompression_noLItest(f2elm_t A, unsigned int r, point_proj_t 
 }
 
 
-void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny)
+void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int rs[2], PCurveIsogenyStruct CurveIsogeny)
 {
     unsigned int r = 0;
     f2elm_t t2w1, t1w2;
     point_proj_t P, Q, R, S;
     
     // 1st basis point:
-    BasePoint3n(A, &r, P, Q, CurveIsogeny);
+    BasePoint3n(A,&r,P,Q,CurveIsogeny);    
+    rs[0] = r;
     
     // 2nd basis point:
     do {
-        BasePoint3n(A, &r, R, S, CurveIsogeny);
+        BasePoint3n(A,&r,R,S,CurveIsogeny);
         fp2mul751_mont(S->X,Q->Z,t2w1);
         fp2mul751_mont(Q->X,S->Z,t1w2);
         fp2correction751(t2w1);
         fp2correction751(t1w2);
     } while (fp2compare751(t2w1,t1w2) == 0); // Pr[t2/w2 == t1/w1] = 1/4: E[loop length] = 4/3
+    rs[1] = r;
 
     // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
     CompleteMPoint(A,P,R1,CurveIsogeny);    // R1 := CompleteMPoint(EM, A, x1, z1)
-    CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)
-}
-
-
-void BuildOrdinaryE3nBasis_compression(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int *rs, PCurveIsogenyStruct CurveIsogeny)
-{
-    f2elm_t t2w1, t1w2;
-    point_proj_t P, Q, R, S;
-    
-    // 1st basis point:
-    BasePoint3n(A, rs, P, Q, CurveIsogeny);
-    
-    // 2nd basis point:
-    do {
-        BasePoint3n(A, &rs[1], R, S, CurveIsogeny);
-        fp2mul751_mont(S->X,Q->Z,t2w1);
-        fp2mul751_mont(Q->X,S->Z,t1w2);
-        fp2correction751(t2w1);
-        fp2correction751(t1w2);
-    } while (fp2compare751(t2w1,t1w2) == 0); // Pr[t2/w2 == t1/w1] = 1/4: E[loop length] = 4/3
-    // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
-    CompleteMPoint(A,P,R1,CurveIsogeny);    // R1 := CompleteMPoint(EM, A, x1, z1)
-    CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)
+    CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)    
 }
 
 
@@ -1510,11 +1493,11 @@ void BuildOrdinaryE3nBasis_decompression(f2elm_t A, point_full_proj_t R1, point_
     
     // Checking for linear independence
 #if !defined(NO_LI_CHECK)
-    fp2mul751_mont(S->X,Q->Z,t2w1);
-    fp2mul751_mont(Q->X,S->Z,t1w2);
+    fp2mul751_mont(S->X, Q->Z, t2w1);
+    fp2mul751_mont(Q->X, S->Z, t1w2);
     fp2correction751(t2w1);
     fp2correction751(t1w2);
-    assert(fp2compare751(t2w1,t1w2) != 0);
+    assert(fp2compare751(t2w1, t1w2) != 0);
 #endif    
     
     // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
@@ -1528,9 +1511,10 @@ void BuildOrdinaryE3nBasis_decompression_noLItest(f2elm_t A, point_full_proj_t R
     point_proj_t P, R;
     
     // 1st basis point:
-    BasePoint3n_decompression_noLItest(A, r1, P, CurveIsogeny);
+    BasePoint3n_decompression_noLItest(A,r1,P,CurveIsogeny);
     // 2nd basis point:
-    BasePoint3n_decompression_noLItest(A, r2, R, CurveIsogeny);
+    BasePoint3n_decompression_noLItest(A,r2,R,CurveIsogeny);
+    
     // NB: ideally the following point completions could share one inversion at the cost of 3 products, but this is not implemented here.
     CompleteMPoint(A,P,R1,CurveIsogeny);    // R1 := CompleteMPoint(EM, A, x1, z1)
     CompleteMPoint(A,R,R2,CurveIsogeny);    // R2 := CompleteMPoint(EM, A, x2, z2)
@@ -1679,7 +1663,7 @@ void Tate_pairings_2_torsion(const point_t R1, const point_t R2, const point_t P
     f2elm_t invs[10], nd[10] = { 0 };
     felm_t one = { 0 };
     unsigned int i;
-
+    
     fpcopy751(CurveIsogeny->Montgomery_one, one);
     fp2copy751(R1->x, P1->XZ);
     fp2sqr751_mont(P1->XZ, P1->X2);
@@ -1703,13 +1687,15 @@ void Tate_pairings_2_torsion(const point_t R1, const point_t R2, const point_t P
         square_and_absorb_line(lx2, ly2, l02, v02, P, nd[3], nd[8]);
         square_and_absorb_line(lx2, ly2, l02, v02, Q, nd[4], nd[9]);
     }
-
+    
     final_dbl_iteration(P1, R2->x, nd[0], nd[5]);
     final_dbl_iteration(P1, P->x, nd[1], nd[6]);
-    final_dbl_iteration(P1, Q->x, nd[2], nd[7]);
+    final_dbl_iteration(P1, Q->x, nd[2], nd[7]);    
     final_dbl_iteration(P2, P->x, nd[3], nd[8]);
     final_dbl_iteration(P2, Q->x, nd[4], nd[9]);
+
     mont_n_way_inv(nd, 10, invs);
+    
     final_exponentiation_2_torsion(nd[0], nd[5], invs[0], invs[5], n[0], CurveIsogeny);
     final_exponentiation_2_torsion(nd[1], nd[6], invs[1], invs[6], n[1], CurveIsogeny);
     final_exponentiation_2_torsion(nd[2], nd[7], invs[2], invs[7], n[2], CurveIsogeny);
@@ -1808,6 +1794,7 @@ void Tate_pairings_2_torsion_fast(const point_full_proj_t P, point_full_proj_t *
     }
 }
 
+
 void Tate_4_pairings_2_torsion(const point_full_proj_t P, const point_full_proj_t Q, const point_t S1, const point_t S2, const f2elm_t A, f2elm_t* n, PCurveIsogenyStruct CurveIsogeny)
 { // The doubling only 2-torsion Tate pairing of order 2^eA, consisting of the doubling only Miller loop and the final exponentiation.]
   // Computes 4 pairings at once: e(P, S1), e(P, S2), e(Q, S1), e(Q, S2).
@@ -1837,9 +1824,10 @@ void Tate_4_pairings_2_torsion(const point_full_proj_t P, const point_full_proj_
     
 }
 
+
 static void tpl_and_parabola(point_ext_proj_t P, const f2elm_t A, f2elm_t ly, f2elm_t lx2, f2elm_t lx1, f2elm_t lx0, f2elm_t vx, f2elm_t v0)
-{ // Tripling step for computing the Tate pairing using Miller's algorithm.
-  // This function computes a point tripling of P and returns the coefficients of the corresponding parabola.
+{  // Tripling step for computing the Tate pairing using Miller's algorithm.
+   // This function computes a point tripling of P and returns the coefficients of the corresponding parabola.
     felm_t *X2 = (felm_t*)P->X2, *XZ = (felm_t*)P->XZ, *YZ = (felm_t*)P->YZ, *Z2 = (felm_t*)P->Z2;
     f2elm_t AXZ, t0, t1, t2, t3, t4, tlx0, tlx1, tlx2;
 
@@ -2370,6 +2358,7 @@ void build_LUTs(const f2elm_t g, f2elm_t* t_ori, f2elm_t* LUT, f2elm_t* LUT_0, f
     }
 }
 
+
 void ph2(const point_t phiP, const point_t phiQ, const point_t PS, const point_t QS, const f2elm_t A, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, PCurveIsogenyStruct CurveIsogeny)
 { // Pohlig-Hellman function. 
   // This function computes the five pairings e(QS, PS), e(QS, phiP), e(QS, phiQ), e(PS, phiP), e(PS,phiQ),
@@ -2382,6 +2371,12 @@ void ph2(const point_t phiP, const point_t phiQ, const point_t PS, const point_t
 	
     // Compute the pairings.
     Tate_pairings_2_torsion(QS, PS, phiP, phiQ, A, n, CurveIsogeny);
+//    fpcopy751(one, n[0][0]);
+//    fpcopy751(one, n[1][0]);
+//    fpcopy751(one, n[2][0]);
+//    fpcopy751(one, n[3][0]);
+//    fpcopy751(one, n[4][0]);
+    
 
     // Build the lookup tables from element n[0] of order 2^372.
     build_LUTs(n[0], t_ori, LUT, LUT_0, LUT_1, LUT_3, one);
@@ -2395,6 +2390,7 @@ void ph2(const point_t phiP, const point_t phiQ, const point_t PS, const point_t
     mp_sub(CurveIsogeny->Aorder, (digit_t*)b1, (digit_t*)b1, NWORDS_ORDER);
 }
 
+
 void ph2_fast(const point_full_proj_t phiP, const point_full_proj_t phiQ, const point_t PS, const point_t QS, const f2elm_t A, uint64_t* c0, uint64_t* d0, uint64_t* c1, uint64_t* d1, PCurveIsogenyStruct CurveIsogeny)
 { // Pohlig-Hellman function. 
   // This function computes the four pairings e(phiP,PS), e(phiP,QS), e(phiQ,PS), e(phiQ,QS),
@@ -2406,22 +2402,14 @@ void ph2_fast(const point_full_proj_t phiP, const point_full_proj_t phiQ, const 
     // Compute the four pairings.
     Tate_4_pairings_2_torsion(phiP, phiQ, PS, QS, A, n, CurveIsogeny);
 
-    for (int i = 0; i < DLEN_2; i++)  D[i] = -1;    
-    Traverse(n[0], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);
-    from_base(D, d0, DLEN_2, ELL2_W);   
+    solve_dlog(n[0], D, d0, 2, CurveIsogeny);
     
-    for (int i = 0; i < DLEN_2; i++)  D[i] = -1;    
-    Traverse(n[2], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);
-    from_base(D, c0, DLEN_2, ELL2_W);    
+    solve_dlog(n[2], D, c0, 2, CurveIsogeny);
     mp_sub(CurveIsogeny->Aorder, (digit_t*)c0, (digit_t*)c0, NWORDS_ORDER);
     
-    for (int i = 0; i < DLEN_2; i++)  D[i] = -1;    
-    Traverse(n[1], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);
-    from_base(D, d1, DLEN_2, ELL2_W);
+    solve_dlog(n[1], D, d1, 2, CurveIsogeny);
     
-    for (int i = 0; i < DLEN_2; i++)  D[i] = -1;    
-    Traverse(n[3], 0, 0, PLEN_2 - 1, ph2_path, ph2_T, D, DLEN_2, ELL2_W, W_2, CurveIsogeny);
-    from_base(D, c1, DLEN_2, ELL2_W);     
+    solve_dlog(n[3], D, c1, 2, CurveIsogeny);
     mp_sub(CurveIsogeny->Aorder, (digit_t*)c1, (digit_t*)c1, NWORDS_ORDER); 
 }
 
@@ -2851,22 +2839,14 @@ void ph3_fast(point_full_proj_t phiP, point_full_proj_t phiQ, point_full_proj_t 
     // Compute the four pairings
     Tate_4_pairings_3_torsion(phiP, phiQ, PS, QS, A, n, CurveIsogeny);
 
-    for (int i = 0; i < DLEN_3; i++)  D[i] = -1;    
-    Traverse(n[0], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, 3, W_3, CurveIsogeny);
-    from_base(D, d0, DLEN_3, 3);   
+    solve_dlog(n[0], D, d0, 3, CurveIsogeny);
     
-    for (int i = 0; i < DLEN_3; i++)  D[i] = -1;    
-    Traverse(n[2], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, 3, W_3, CurveIsogeny);
-    from_base(D, c0, DLEN_3, 3);    
+    solve_dlog(n[2], D, c0, 3, CurveIsogeny);
     mp_sub(CurveIsogeny->Border, (digit_t*)c0, (digit_t*)c0, NWORDS_ORDER);
     
-    for (int i = 0; i < DLEN_3; i++)  D[i] = -1;    
-    Traverse(n[1], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, 3, W_3, CurveIsogeny);
-    from_base(D, d1, DLEN_3, 3);
-    
-    for (int i = 0; i < DLEN_3; i++)  D[i] = -1;    
-    Traverse(n[3], 0, 0, PLEN_3 - 1, ph3_path, ph3_T, D, DLEN_3, 3, W_3, CurveIsogeny);
-    from_base(D, c1, DLEN_3, 3);     
+    solve_dlog(n[1], D, d1, 3, CurveIsogeny);
+
+    solve_dlog(n[3], D, c1, 3, CurveIsogeny);
     mp_sub(CurveIsogeny->Border, (digit_t*)c1, (digit_t*)c1, NWORDS_ORDER);    
 }
 

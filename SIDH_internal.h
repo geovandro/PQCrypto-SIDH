@@ -526,16 +526,13 @@ void get_A(const f2elm_t xP, const f2elm_t xQ, const f2elm_t xR, f2elm_t A, PCur
 void generate_2_torsion_basis(const f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny);
 
 // Produces points S1 and S2 such that {3^eB*S1, 3^eB*S2} is a basis for E[2^372]
-void generate_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2, PCurveIsogenyStruct CurveIsogeny);
+void get_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2, PCurveIsogenyStruct CurveIsogeny);
 
 // Produces points R1 and R2 as basis for E[3^239]
 void generate_3_torsion_basis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny);
 
 // Produces points R1 and R2 as basis for E[3^239] faster 
-void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny);
-
-// Produces points R1 and R2 as basis for E[3^239] faster and also returns Elligator 2 counters for regenerating the basis in decompression
-void BuildOrdinaryE3nBasis_compression(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int *rs, PCurveIsogenyStruct CurveIsogeny);
+void BuildOrdinaryE3nBasis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int rs[2], PCurveIsogenyStruct CurveIsogeny);
 
 // Produces points R1 and R2 as basis for E[3^239] faster with shared elligator
 void BuildOrdinaryE3nBasis_decompression(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, unsigned int r1, unsigned int r2, PCurveIsogenyStruct CurveIsogeny);
@@ -616,10 +613,13 @@ unsigned int mod3(digit_t* a);
 void mont_twodim_scalarmult(digit_t* a, const point_t R, const point_t S, const f2elm_t A, const f2elm_t A24, point_full_proj_t P, PCurveIsogenyStruct CurveIsogeny);
 
 // Compute the optimal strategy version of the discrete log 
-void Traverse(f2elm_t r, int j, int k, int z, const int *P, const f2elm_t **T, int *D, int Dlen, int ell, int w, PCurveIsogenyStruct CurveIsogeny);
+void solve_dlog(f2elm_t r, int *D, uint64_t* d, int ell, PCurveIsogenyStruct CurveIsogeny);
 
-// Precompute the table required by the optimal strategy discrete log
+// Precompute the table required by the optimal strategy discrete log 
 void Precomp(f2elm_t invg, f2elm_t **T, int ell, int w, int e, PCurveIsogenyStruct CurveIsogeny);
+// Precompute the tables required by the optimal strategy discrete log for window sizes not dividing the exponent e
+void PrecompT1(f2elm_t invg, f2elm_t **T2, int ell, int w, int e, PCurveIsogenyStruct CurveIsogeny); 
+void PrecompT2(f2elm_t invg, f2elm_t **T2, int ell, int w, int e, PCurveIsogenyStruct CurveIsogeny); 
 
 void compress_2_torsion(const unsigned char* PublicKeyA, unsigned char* CompressedPKA, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, point_t R1, point_t R2, PCurveIsogenyStruct CurveIsogeny);
 void compress_3_torsion(const unsigned char* PublicKeyA, unsigned char* CompressedPKA, uint64_t* a0, uint64_t* b0, uint64_t* a1, uint64_t* b1, point_t R1, point_t R2, PCurveIsogenyStruct CurveIsogeny);
