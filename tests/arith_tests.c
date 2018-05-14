@@ -41,8 +41,8 @@ extern const f2elm_t **ph3_T2;
     #define ECPH_TEST_LOOPS        10       // Number of iterations per Pohlig-Hellman test
     #define COMP_TEST_LOOPS        10       // Number of iterations per Pohlig-Hellman test
 #else
-    #define BENCH_LOOPS        170000
-    #define SMALL_BENCH_LOOPS   10000       
+    #define BENCH_LOOPS      20000000
+    #define SMALL_BENCH_LOOPS   20000       
     #define TEST_LOOPS            100       
     #define ECPT_TEST_LOOPS        20       
     #define ECPAIR_TEST_LOOPS      20       
@@ -586,7 +586,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;
     unsigned int pbytes = (CurveIsogenyData->pwordbits + 7)/8;    // Number of bytes in a field element 
     unsigned int obytes = (CurveIsogenyData->owordbits + 7)/8;    // Number of bytes in an element in [1, order]    
-    unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB;
+    unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB, isASqr = 0, entry = 0;
     unsigned int rs[2] = {0};
     
     // Curve isogeny system initialization
@@ -719,6 +719,7 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
     // 2^eA-torsion basis generation
     msrcycles = 0;
     cycles = 0;
+    cycles_det = 0;
     for (n = 0; n < SMALL_BENCH_LOOPS; n++)
     {
         EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);
@@ -738,10 +739,18 @@ bool ecisog_run(PCurveIsogenyStaticData CurveIsogenyData)
         get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny); // Entangled basis
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
+        
+        get_2_torsion_entangled_basis_compression(A, S1, S2, &isASqr, &entry, CurveIsogeny); // Entangled basis
+        cycles1 = cpucycles(); 
+        get_2_torsion_entangled_basis_decompression(A, S1, S2, isASqr, entry, CurveIsogeny); // Entangled basis
+        cycles2 = cpucycles();
+        cycles_det = cycles_det+(cycles2-cycles1);
     }
     printf("\n  2^eA-torsion basis generation runs in .......................... %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  2^eA-torsion entangled basis generation runs in ................. %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  .................................................................. ratio = %.2f", (float)msrcycles/cycles);    
+    printf("\n  2^eA-torsion entangled basis generation in decomp. runs in ...... %7lld ", cycles_det/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  .................................................................. ratio = %.2f", (float)msrcycles/cycles_det);    
     printf("\n");
     
     // 3^eB-torsion basis generation
@@ -955,20 +964,14 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
     unsigned int pbytes = (CurveIsogenyData->pwordbits + 7)/8;    // Number of bytes in a field element 
     unsigned int obytes = (CurveIsogenyData->owordbits + 7)/8;    // Number of bytes in an element in [1, order]    
     unsigned int rs[2];
-    unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB, *CompressedPKA, *CompressedPKB;
+    unsigned char *PrivateKeyA, *PublicKeyA, *PrivateKeyB, *PublicKeyB;
     bool OK = true;
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;    
 
     PrivateKeyA = (unsigned char*)calloc(1, obytes);                   // One element in [1, order]  
     PublicKeyA = (unsigned char*)calloc(1, 3*2*pbytes);                // Three elements in GF(p^2)
-#ifndef SHARED_ELLIGATOR    
-    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);    // Three elements in [1, order] plus one field element    
-#else
-    CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);    // Three elements in [1, order] plus one field element    
-#endif    
     PrivateKeyB = (unsigned char*)calloc(1, obytes);    
     PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
-    CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes); 
     
     // Curve isogeny system initialization
     CurveIsogeny = SIDH_curve_allocate(CurveIsogenyData);
@@ -1166,7 +1169,7 @@ bool discretelog_run(PCurveIsogenyStaticData CurveIsogenyData) {
         cycles = cycles + (cycles2-cycles1);
     }    
     printf("\n  Discrete logs 2-torsion  ........................................ %7lld ", msrcycles/SMALL_BENCH_LOOPS); print_unit;
-    printf("\n  Fast Discrete logs 2-torsion .................................... %7lld ", cycles/SMALL_BENCH_LOOPS); print_unit;
+    printf("\n  Fast Discrete logs 2-torsion (w = %d) ........................... %7lld ", W_2, cycles/SMALL_BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", (float)msrcycles/cycles);    
     printf("\n");
     
@@ -1174,10 +1177,8 @@ cleanup:
     SIDH_curve_free(CurveIsogeny);    
     free(PrivateKeyA);    
     free(PublicKeyA);    
-    free(CompressedPKA);    
     free(PrivateKeyB);
-    free(PublicKeyB); 
-    free(CompressedPKB); 
+    free(PublicKeyB);
     
     return OK;
     
@@ -2336,6 +2337,8 @@ int main()
     
     OK = OK && ecisog_run(&CurveIsogeny_SIDHp751);       // Benchmark elliptic curve and isogeny functions
     OK = OK && discretelog_run(&CurveIsogeny_SIDHp751);
+    
+    // Old tests for SIDH lib v2.0
     OK = OK && ecpoints_test(&CurveIsogeny_SIDHp751);    // Test point generation functions
     OK = OK && ecpairing_test(&CurveIsogeny_SIDHp751);   // Test pairing functions
     OK = OK && ecph_test(&CurveIsogeny_SIDHp751);        // Test Pohlig-Hellman functions    

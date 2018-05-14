@@ -1022,6 +1022,142 @@ void get_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2, PCur
 }
 
 
+void get_2_torsion_entangled_basis_compression(const f2elm_t A, point_t S1, point_t S2, unsigned char *bit, unsigned char *entry, PCurveIsogenyStruct CurveIsogeny) 
+{
+    unsigned int i, index, isSqrA = 0;
+    felm_t r = {0}, s, z, alpha, twoalphainv, beta;
+    f2elm_t t, u, u0, one = {0}, *t_ptr;
+    felm_t *x1 = (felm_t*) S1->x, *y1 = (felm_t*) S1->y, *x2 = (felm_t*) S2->x, *y2 = (felm_t*) S2->y;
+     
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    
+    copy_words(u0_entang, u0[0], 2*NWORDS_FIELD);
+    copy_words(u_entang, u[0], 2*NWORDS_FIELD);
+
+    // select the correct table
+    if (is_sqr_fp2(A, s)) {
+        t_ptr = (f2elm_t *)table_v_qnr; 
+        isSqrA = 1;
+    } else {
+        t_ptr = (f2elm_t *)table_v_qr;
+    }
+    *bit = isSqrA;
+
+    index = 0;
+    do {
+        fp2mul751_mont(A, (felm_t *)*t_ptr++, x1); // x1 =  A*v
+        fp2neg751(x1);                             // x1 = -A*v
+        fp2add751(x1, A, t);
+        fp2mul751_mont(x1, t, t);
+        fpadd751(t[0], one[0], t[0]);
+        fp2mul751_mont(x1, t, t); // t = x1^3 + A*x1^2 + x1 = x1(x1(x1 + A) + 1)
+        index += 2;
+    } while (!is_sqr_fp2(t, s));
+    *entry = (index - 2)/2;
+    
+    if (isSqrA)
+        copy_words(table_r_qnr[(index-2)/2], r, NWORDS_FIELD);
+    else
+        copy_words(table_r_qr[(index-2)/2], r, NWORDS_FIELD);
+    
+    // Finish sqrt computation for y1 = sqrt(x1^3+A*x1^2+x1)
+    fpadd751(t[0],s,z);
+    fpdiv2_751(z,z);
+    fpcopy751(z,alpha);
+    for (i = 0; i < 370; i++) {         
+        fpsqr751_mont(alpha, alpha);
+    }
+    for (i = 0; i < 239; i++) {
+        fpsqr751_mont(alpha, s);                                         
+        fpmul751_mont(alpha, s, alpha);     // alpha = z^((p+1)/4)                                 
+    }
+
+    fpadd751(alpha,alpha,twoalphainv);   
+    fpinv751_mont_bingcd(twoalphainv);   
+    fpmul751_mont(t[1],twoalphainv,beta);
+    fpsqr751_mont(alpha, twoalphainv);
+    fpcorrection751(twoalphainv);
+    fpcorrection751(z);
+    if (fpcompare751(twoalphainv,z) == 0) {
+        fpcopy751(alpha,y1[0]);
+        fpcopy751(beta,y1[1]);
+    } else {
+        fpneg751(beta);
+        fpcopy751(beta,y1[0]);
+        fpneg751(alpha);        
+        fpcopy751(alpha,y1[1]);
+    }
+    fp2add751(x1, A, x2);
+    fp2neg751(x2);                  // x2 = A*v - A
+    fp2mul751_mont(u0,y1,y2);   
+    fpmul751_mont(r,y2[0],y2[0]);
+    fpmul751_mont(r,y2[1],y2[1]);   // y2 = u0*r*y1
+}
+
+
+void get_2_torsion_entangled_basis_decompression(const f2elm_t A, point_t S1, point_t S2, unsigned char isASqr, unsigned char entry, PCurveIsogenyStruct CurveIsogeny) 
+{
+    unsigned int i;
+    felm_t r = {0}, s, z, alpha, twoalphainv, beta;
+    f2elm_t t, u, u0, one = {0}, *t_ptr;
+    felm_t *x1 = (felm_t*) S1->x, *y1 = (felm_t*) S1->y, *x2 = (felm_t*) S2->x, *y2 = (felm_t*) S2->y;
+     
+    fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
+    
+    copy_words(u0_entang, u0[0], 2*NWORDS_FIELD);
+    copy_words(u_entang, u[0], 2*NWORDS_FIELD);
+
+    // select the table
+    t_ptr = isASqr ? (f2elm_t *)table_v_qnr : (f2elm_t *)table_v_qr;
+
+    fp2mul751_mont(A, t_ptr[entry], x1); // x1 =  A*v
+    fp2neg751(x1);                       // x1 = -A*v
+    fp2add751(x1, A, t);
+    fp2mul751_mont(x1, t, t);
+    fpadd751(t[0], one[0], t[0]);
+    fp2mul751_mont(x1, t, t); // t = x1^3 + A*x1^2 + x1 = x1(x1(x1 + A) + 1)
+    is_sqr_fp2(t, s);
+    
+    if (isASqr)
+        copy_words(table_r_qnr[entry], r, NWORDS_FIELD);
+    else
+        copy_words(table_r_qr[entry], r, NWORDS_FIELD);
+    
+    // Finish sqrt computation for y1 = sqrt(x1^3+A*x1^2+x1)
+    fpadd751(t[0],s,z);
+    fpdiv2_751(z,z);
+    fpcopy751(z,alpha);
+    for (i = 0; i < 370; i++) {         
+        fpsqr751_mont(alpha, alpha);
+    }
+    for (i = 0; i < 239; i++) {
+        fpsqr751_mont(alpha, s);                                         
+        fpmul751_mont(alpha, s, alpha);     // alpha = z^((p+1)/4)                                 
+    }
+
+    fpadd751(alpha,alpha,twoalphainv);   
+    fpinv751_mont_bingcd(twoalphainv);   
+    fpmul751_mont(t[1],twoalphainv,beta);
+    fpsqr751_mont(alpha, twoalphainv);
+    fpcorrection751(twoalphainv);
+    fpcorrection751(z);
+    if (fpcompare751(twoalphainv,z) == 0) {
+        fpcopy751(alpha,y1[0]);
+        fpcopy751(beta,y1[1]);
+    } else {
+        fpneg751(beta);
+        fpcopy751(beta,y1[0]);
+        fpneg751(alpha);        
+        fpcopy751(alpha,y1[1]);
+    }
+    fp2add751(x1, A, x2);
+    fp2neg751(x2);                  // x2 = A*v - A
+    fp2mul751_mont(u0,y1,y2);   
+    fpmul751_mont(r,y2[0],y2[0]);
+    fpmul751_mont(r,y2[1],y2[1]);   // y2 = u0*r*y1
+}
+
+
 static void get_X_on_curve(f2elm_t A, unsigned int* r, f2elm_t x, felm_t t1, felm_t a, felm_t b) 
 { // Elligator2 for X
     felm_t v0, v1, r0, r1, t0, t2, t3, rsq = {0};
@@ -2371,11 +2507,6 @@ void ph2(const point_t phiP, const point_t phiQ, const point_t PS, const point_t
 	
     // Compute the pairings.
     Tate_pairings_2_torsion(QS, PS, phiP, phiQ, A, n, CurveIsogeny);
-//    fpcopy751(one, n[0][0]);
-//    fpcopy751(one, n[1][0]);
-//    fpcopy751(one, n[2][0]);
-//    fpcopy751(one, n[3][0]);
-//    fpcopy751(one, n[4][0]);
     
 
     // Build the lookup tables from element n[0] of order 2^372.

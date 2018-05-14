@@ -21,7 +21,7 @@
     #define BENCH_LOOPS        10      // Number of iterations per bench 
     #define TEST_LOOPS         10      // Number of iterations per test
 #else
-    #define BENCH_LOOPS       700       
+    #define BENCH_LOOPS       800       
     #define TEST_LOOPS         50    
 #endif
 #define BIGMONT_TEST_LOOPS     10      // Number of iterations per BigMont test
@@ -130,10 +130,11 @@ CRYPTO_STATUS cryptotest_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     PublicKeyB_tmp = (unsigned char*)calloc(1, 3*2*pbytes);
 #ifdef SHARED_ELLIGATOR    
     CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);  // Three elements in [1, order] plus one field element
+    CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);
 #else
     CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);      // Three elements in [1, order]
-#endif    
     CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);
+#endif        
     SharedSecretA = (unsigned char*)calloc(1, 2*pbytes);                 // One element in GF(p^2)  
     SharedSecretB = (unsigned char*)calloc(1, 2*pbytes);
     R = (unsigned char*)calloc(1, 2*2*pbytes);                           // One point in (X:Z) coordinates 
@@ -376,15 +377,15 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     PublicKeyB = (unsigned char*)calloc(1, 3*2*pbytes);
 #ifdef SHARED_ELLIGATOR    
     CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2);  // Three elements in [1, order] plus one field element
+    CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes + 2); 
 #else
     CompressedPKA = (unsigned char*)calloc(1, 3*obytes + 2*pbytes);      // Three elements in [1, order]
-#endif       
     CompressedPKB = (unsigned char*)calloc(1, 3*obytes + 2*pbytes); 
+#endif       
     SharedSecretA = (unsigned char*)calloc(1, 2*pbytes);               // One element in GF(p^2)
     SharedSecretB = (unsigned char*)calloc(1, 2*pbytes); 
     R = (unsigned char*)calloc(1, 2*2*pbytes);                         // One point in (X:Z) coordinates 
     A = (unsigned char*)calloc(1, 2*pbytes);                           // One element in GF(p^2)             
-
     
     printf("\n\nBENCHMARKING EPHEMERAL ISOGENY-BASED KEY EXCHANGE USING COMPRESSION \n");
     printf("--------------------------------------------------------------------------------------------------------\n\n");
@@ -399,7 +400,31 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     Status = SIDH_curve_initialize(CurveIsogeny, &random_bytes_test, CurveIsogenyData);
     if (Status != CRYPTO_SUCCESS) {
         goto cleanup;
-    } 
+    }
+    
+    // Benchmarking Alice's key pair generation
+    cycles = 0;
+    for (n = 0; n < BENCH_LOOPS; n++)
+    {    
+        cycles1 = cpucycles(); 
+        EphemeralKeyGeneration_A(PrivateKeyA, PublicKeyA, CurveIsogeny);    // Get some value as Alice's secret key and compute Alice's public key     
+        cycles2 = cpucycles();
+        cycles = cycles+(cycles2-cycles1);             
+    }
+    printf("  Alice's key generation runs in ............................... %10lld ", cycles/BENCH_LOOPS); print_unit; 
+    printf("\n");    
+    
+    // Benchmarking Bob's key pair generation
+    cycles = 0;
+    for (n = 0; n < BENCH_LOOPS; n++)
+    {    
+        cycles1 = cpucycles(); 
+        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Alice's secret key and compute Alice's public key     
+        cycles2 = cpucycles();
+        cycles = cycles+(cycles2-cycles1);             
+    }
+    printf("  Bob's key generation runs in ................................. %10lld ", cycles/BENCH_LOOPS); print_unit; 
+    printf("\n");        
 
     // Benchmarking Alice's public key compression
     cycles = 0;
@@ -423,7 +448,7 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
         cycles2 = cpucycles();
         msrcycles = msrcycles+(cycles2-cycles1);
     }
-    printf("  Alice's public key compression runs in ....................... %10lld ", msrcycles/BENCH_LOOPS); print_unit; 
+    printf("\n  Alice's public key compression runs in ....................... %10lld ", msrcycles/BENCH_LOOPS); print_unit; 
     printf("\n  Fast Alice's public key compression runs in .................. %10lld ", cycles/BENCH_LOOPS); print_unit;
     printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);
     printf("\n");
@@ -457,7 +482,7 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     printf("\n  ................................................................... ratio = %.2f", msrcycles/(float)cycles);
 
     printf("\n");
-    
+   
     // Benchmarking Bob's shared key computation
     cycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
@@ -468,14 +493,13 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
         cycles = cycles+(cycles2-cycles1);
     }
     printf("\n  Bob's shared key computation runs in ......................... %10lld ", cycles/BENCH_LOOPS); print_unit;
-
     printf("\n");
 
     // Benchmarking Bob's public key compression
     cycles = 0;
-    msrcycles = 0;
-    EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
+    msrcycles = 0;    
     for (n = 0; n < BENCH_LOOPS; n++) {                
+        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
           
         cycles1 = cpucycles();
         PublicKeyCompression_B_fast(PublicKeyB, CompressedPKB, CurveIsogeny); 
@@ -494,6 +518,7 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
     
     // Benchmarking Alice's decompression
     cycles = 0;    
+    msrcycles = 0;
     for (n = 0; n < BENCH_LOOPS; n++)
     {
         EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
@@ -503,12 +528,7 @@ CRYPTO_STATUS cryptorun_kex_compress(PCurveIsogenyStaticData CurveIsogenyData)
         PublicKeyBDecompression_A_fast(PrivateKeyA, CompressedPKB, R, A, CurveIsogeny);
         cycles2 = cpucycles();
         cycles = cycles+(cycles2-cycles1);
-    }
 
-    msrcycles = 0;
-    for (n = 0; n < BENCH_LOOPS; n++)
-    {
-        EphemeralKeyGeneration_B(PrivateKeyB, PublicKeyB, CurveIsogeny);    // Get some value as Bob's secret key and compute Bob's public key
         PublicKeyCompression_B(PublicKeyB, CompressedPKB, CurveIsogeny);
         
         cycles1 = cpucycles();
@@ -609,7 +629,7 @@ cleanup:
 int main()
 {
     CRYPTO_STATUS Status = CRYPTO_SUCCESS;
-/*
+
     Status = cryptotest_kex(&CurveIsogeny_SIDHp751);             // Test key exchange system "SIDHp751"
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
@@ -621,25 +641,25 @@ int main()
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-/*/
+
     Status = cryptotest_kex_compress(&CurveIsogeny_SIDHp751);    // Test key exchange system "SIDHp751" using compression
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-//*/
+
     Status = cryptorun_kex_compress(&CurveIsogeny_SIDHp751);     // Benchmark key exchange system "SIDHp751" using compression
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-/*    
+
     Status = cryptotest_BigMont(&CurveIsogeny_SIDHp751);         // Test elliptic curve "BigMont"
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));
         return false;
     }
-*/
+
     Status = cryptorun_BigMont(&CurveIsogeny_SIDHp751);          // Benchmark elliptic curve "BigMont"
     if (Status != CRYPTO_SUCCESS) {
         printf("\n\n   Error detected: %s \n\n", SIDH_get_error_message(Status));

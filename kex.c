@@ -811,6 +811,7 @@ void PublicKeyCompression_B_fast(const unsigned char* PublicKeyB, unsigned char*
     digit_t inv[NWORDS_ORDER];
     f2elm_t A, vec[2], Zinv[2], one = {0};
     digit_t c0[NWORDS_ORDER], d0[NWORDS_ORDER], c1[NWORDS_ORDER], d1[NWORDS_ORDER], tmp[2*NWORDS_ORDER], mask = (digit_t)(-1);
+    unsigned char bit, r = 0;
     
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     
@@ -831,7 +832,8 @@ void PublicKeyCompression_B_fast(const unsigned char* PublicKeyB, unsigned char*
     fp2mul751_mont(phQ->Y, Zinv[1], phQ->Y);
     fp2copy751(one, phQ->Z);
     
-    get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);
+    //get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);
+    get_2_torsion_entangled_basis_compression(A, S1, S2, &bit, &r, CurveIsogeny);
     
     ph2_fast(phP, phQ, S1, S2, A, (uint64_t*)c0, (uint64_t*)d0, (uint64_t*)c1, (uint64_t*)d1, CurveIsogeny);
 
@@ -865,6 +867,10 @@ void PublicKeyCompression_B_fast(const unsigned char* PublicKeyB, unsigned char*
     }
     
     from_fp2mont(A, (felm_t*)&comp[3*NWORDS_ORDER]);  // Converting back from Montgomery representation
+#ifdef SHARED_ELLIGATOR    
+    memcpy(&comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD)], &bit, 1);
+    memcpy(&comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD) + 1], &r, 1);
+#endif    
 }
 
 
@@ -948,13 +954,22 @@ void PublicKeyBDecompression_A_fast(const unsigned char* SecretKeyA, const unsig
     felm_t* A = (felm_t*)param_A;
     digit_t tmp1[2*NWORDS_ORDER], tmp2[2*NWORDS_ORDER], vone[2*NWORDS_ORDER] = {0}, mask = (digit_t)(-1);
     unsigned int bit;
+#ifdef SHARED_ELLIGATOR
+    unsigned int isASqr, r;
+#endif    
 
     mask >>= (CurveIsogeny->owordbits - CurveIsogeny->oAbits);  
     vone[0] = 1;
     fpcopy751(CurveIsogeny->Montgomery_one, one[0]);
     to_fp2mont((felm_t*)&comp[3*NWORDS_ORDER], A);    // Converting to Montgomery representation
 
+#ifdef SHARED_ELLIGATOR    
+    isASqr = (unsigned char)((unsigned char)comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD)]);
+    r = (unsigned char)((unsigned char)comp[3*NBITS_TO_NBYTES(NBITS_ORDER) + 2*NBITS_TO_NBYTES(NBITS_FIELD) + 1]);
+    get_2_torsion_entangled_basis_decompression(A, S1, S2, isASqr, r, CurveIsogeny);
+#else          
     get_2_torsion_entangled_basis(A, S1, S2, CurveIsogeny);
+#endif    
 
     fp2add751(A, one, A24);
     fp2add751(A24, one, A24);

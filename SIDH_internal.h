@@ -528,6 +528,11 @@ void generate_2_torsion_basis(const f2elm_t A, point_full_proj_t R1, point_full_
 // Produces points S1 and S2 such that {3^eB*S1, 3^eB*S2} is a basis for E[2^372]
 void get_2_torsion_entangled_basis(const f2elm_t A, point_t S1, point_t S2, PCurveIsogenyStruct CurveIsogeny);
 
+// Produces points S1 and S2 such that {3^eB*S1, 3^eB*S2} is a basis for E[2^372] and returns the quadratic character of A in addition to the table entry used
+void get_2_torsion_entangled_basis_compression(const f2elm_t A, point_t S1, point_t S2, unsigned char *bit, unsigned char *entry, PCurveIsogenyStruct CurveIsogeny);
+// Receive the shared elligator parameters and perform a deterministic basis generation of E[2^m]
+void get_2_torsion_entangled_basis_decompression(const f2elm_t A, point_t S1, point_t S2, unsigned char isASqr, unsigned char entry, PCurveIsogenyStruct CurveIsogeny);
+
 // Produces points R1 and R2 as basis for E[3^239]
 void generate_3_torsion_basis(f2elm_t A, point_full_proj_t R1, point_full_proj_t R2, PCurveIsogenyStruct CurveIsogeny);
 

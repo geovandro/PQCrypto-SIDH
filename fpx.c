@@ -1006,7 +1006,7 @@ unsigned char is_sqr_fp2(const f2elm_t a, felm_t s) {
     fpsqr751_mont(s,temp);          // s = z^((p+1)/4)
     fpcorrection751(temp);
     fpcorrection751(z);
-    if (fpcompare751(temp,z) != 0)  // s^2 =? z
+    if (fpcompare751(temp,z) != 0)  // s^2 !=? z
         return 0;
     
     return 1;
