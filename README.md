@@ -8,12 +8,14 @@ Faster SIDH key compression introduces new algorithms for speeding up the main S
 * faster point tripling formula for the non-projective curve coefficient case,
 * reverse basis decomposition technique to avoid one pairing computation in each compression.
 * new shared elligator for faster decompression in 3^eB (up to 2x faster) 
-* shared elligator combined with entangled basis for generating the 2^eA-torsion achieves ~30x faster and breaks the 1M cycles barrier (0.83M cycles)
+* shared elligator combined with entangled basis for generating the 2^eA-torsion achieves ~30x faster and breaks the 1M cycles barrier (0.83M cycles @Intel Core i5)
 
 
 
-The related pre-print is available [`here`](http://eprint.iacr.org/2017/1143).
-The initial contributions of this work appeared at [`PQCrypto 2018`](http://www.math.fau.edu/pqcrypto2018/).
+The related ePrint version is available [`here`](http://eprint.iacr.org/2017/1143).
+The initial contributions of this work appeared in [1].
+
+[1] [`Faster Isogeny-Based Compressed Key Agreement, PQCrypto 2018`](http://www.math.fau.edu/pqcrypto2018/accepted-papers.php).
 
 
 ### Compilation options
