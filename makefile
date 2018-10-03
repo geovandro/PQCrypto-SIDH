@@ -26,7 +26,7 @@ ifeq "$(SET)" "EXTENDED"
     ADDITIONAL_SETTINGS=-fwrapv -fomit-frame-pointer -march=native
 endif
 
-ifeq "$(MACOS_CLANG)" "TRUE"
+ifeq "$(MACOSX_CLANG)" "TRUE"
 	MAC_CLANG_FLAGS=-D __ASM_UNDER__
 endif	
 
