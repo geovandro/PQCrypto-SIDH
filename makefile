@@ -2,14 +2,15 @@
 
 OPT=-O3     # Optimization option by default
 
-CC=clang
+CC=gcc
 ifeq "$(CC)" "gcc"
     COMPILER=gcc
 else ifeq "$(CC)" "clang"
     COMPILER=clang
 endif
 
-
+ARCH=x64
+GENERIC=FALSE
 ifeq "$(ARCH)" "x64"
     ARCHITECTURE=_AMD64_
 else ifeq "$(ARCH)" "x86"
@@ -25,6 +26,10 @@ ifeq "$(SET)" "EXTENDED"
     ADDITIONAL_SETTINGS=-fwrapv -fomit-frame-pointer -march=native
 endif
 
+ifeq "$(MACOS_CLANG)" "TRUE"
+	MAC_CLANG_FLAGS=-D __ASM_UNDER__
+endif	
+
 ifeq "$(GENERIC)" "TRUE"
     USE_GENERIC=-D _GENERIC_
 endif
@@ -39,7 +44,7 @@ endif
 
 
 cc=$(COMPILER)
-CFLAGS+=-c -g $(OPT) $(ADDITIONAL_SETTINGS) -D $(ARCHITECTURE) -D __LINUX__ -D __PRINTv2__ -D __ASM_UNDER__ -D SHARED_ELLIGATOR $(USE_GENERIC) 
+CFLAGS+=-c -g $(OPT) $(ADDITIONAL_SETTINGS) -D $(ARCHITECTURE) -D __LINUX__ -D __PRINTv2__ -D SHARED_ELLIGATOR $(USE_GENERIC) $(MAC_CLANG_FLAGS) 
 LDFLAGS=
 ifeq "$(GENERIC)" "TRUE"
     EXTRA_OBJECTS=fp_generic.o

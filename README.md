@@ -1,14 +1,14 @@
 # Faster SIDH key compression is a fork of SIDH v2.0 library
 
 Faster SIDH key compression introduces new algorithms for speeding up the main SIDH (de)compression bottlenecks including the following contributions:
-* faster basis generation for the 2^eA (~15.0x in compression and ~30x faster in decompression) and 3^eB torsions, 
+* faster basis generation for the 2^eA torsion (~15.0x faster compression and ~30x faster decompression) and the 3^eB torsion, 
 * faster Tate pairing computation, 
-* faster Pohlig-Hellman for smooth-order discrete logarithms inspired by the De Feo-Jao-Plut's optimal strategy,
-* new windowed Pohlig-Hellman for cases where the window size w does not divide the exponent e
-* faster point tripling formula for the non-projective curve coefficient case,
-* reverse basis decomposition technique to avoid one pairing computation in each compression.
-* new shared elligator for faster decompression in 3^eB (up to 2x faster) 
-* shared elligator combined with entangled basis for generating the 2^eA-torsion achieves ~30x faster and breaks the 1M cycles barrier (0.83M cycles)
+* an O(e log e) Pohlig-Hellman strategy to compute smooth-order discrete logarithms. This is inspired by the De Feo-Jao-Plut's optimal strategy for smooth-degree isogenies,
+* new windowed Pohlig-Hellman algorithm for window sizes w not dividing the exponent e on an l^e order discrete logarithm.
+* faster point tripling formula for Montgomery curves with non-projective coefficients,
+* reverse basis decomposition technique to avoid one pairing computation in each key compression.
+* new shared elligator technique for faster decompression on both 2^eA and 3^eB torsions
+* the shared elligator combined with entangled bases achieves ~30x faster 2^eA torsion basis generation and breaks the 1M cycles barrier (0.83M cycles). This costed ~23.8M cycles in previous work.
 
 
 
@@ -39,10 +39,10 @@ $ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ARCH_EX=skylake
 $ make ARCH=x64 CC=[gcc/clang] GENERIC=FALSE SET=EXTENDED ARCH_EX=native
 ```
 
- * Compile for Apple OSX.
+ * Compile for Apple MACOSX.
 
 ```sh
-$ make ARCH=x64 CC=[gcc/clang] GENERIC=[FALSE/TRUE] SET=EXTENDED ARCH_EX=native
+$ make ARCH=x64 CC=[gcc/clang] [MACOSX_CLANG=TRUE] GENERIC=[FALSE/TRUE] SET=EXTENDED ARCH_EX=native
 ```
 
 ### License 
